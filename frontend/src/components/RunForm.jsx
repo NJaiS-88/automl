@@ -3,12 +3,11 @@ import { useState } from "react";
 function RunForm({ onSubmit, loading }) {
   const [file, setFile] = useState(null);
   const [targetCol, setTargetCol] = useState("");
-  const [visualizations, setVisualizations] = useState("yes");
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!file || !targetCol.trim()) return;
-    onSubmit({ file, targetCol, visualizations });
+    onSubmit({ file, targetCol });
   };
 
   return (
@@ -26,13 +25,6 @@ function RunForm({ onSubmit, loading }) {
           value={targetCol}
           onChange={(e) => setTargetCol(e.target.value)}
         />
-      </div>
-      <div className="field">
-        <label>Visualizations</label>
-        <select value={visualizations} onChange={(e) => setVisualizations(e.target.value)}>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
       </div>
       <button className="primary-btn" disabled={loading}>
         {loading ? "Running..." : "Run AutoML"}

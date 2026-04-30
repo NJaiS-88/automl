@@ -27,11 +27,11 @@ export const useRunStore = create((set, get) => ({
     }
   },
 
-  executeRun: async ({ file, targetCol, visualizations }) => {
+  executeRun: async ({ file, targetCol }) => {
     const form = new FormData();
     form.append("dataset", file);
     form.append("targetCol", targetCol);
-    form.append("visualizations", visualizations);
+    form.append("visualizations", "yes");
 
     set({ loading: true, error: "" });
     try {

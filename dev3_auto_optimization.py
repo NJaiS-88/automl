@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict
+import os
 
 import numpy as np
 from sklearn.base import clone
@@ -18,6 +19,15 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+
+
+def _memory_safe_mode():
+    flag = os.getenv("AUTOML_MEMORY_SAFE", "").strip().lower()
+    return flag in {"1", "true", "yes", "on"} or bool(os.getenv("RENDER"))
+
+
+def _parallel_jobs():
+    return 1 if _memory_safe_mode() else -1
 
 
 @dataclass
@@ -157,7 +167,7 @@ def _build_candidate_estimators(
                 max_features="sqrt",
                 class_weight=class_weight,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=_parallel_jobs(),
             ),
             "GradientBoost": GradientBoostingClassifier(
                 n_estimators=max(80, int(n_estimators * 0.6)),
@@ -178,7 +188,7 @@ def _build_candidate_estimators(
                 max_features="sqrt",
                 class_weight="balanced",
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=_parallel_jobs(),
             )
         return candidates
 
@@ -208,7 +218,7 @@ def _build_candidate_estimators(
             min_samples_leaf=2 if issue == "overfitting" else 1,
             max_features=max_features_reg,
             random_state=random_state,
-            n_jobs=-1,
+            n_jobs=_parallel_jobs(),
         ),
         "GradientBoost": GradientBoostingRegressor(
             n_estimators=max(80, int(n_estimators * 0.6)),

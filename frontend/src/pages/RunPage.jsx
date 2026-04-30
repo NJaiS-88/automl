@@ -18,7 +18,7 @@ function RunPage() {
         <h2>Workflow</h2>
         <ol>
           <li>Upload dataset</li>
-          <li>Select target + visualization option</li>
+          <li>Select target column</li>
           <li>Train and optimize with existing Python pipeline</li>
           <li>Explore full report and predict with trained model</li>
         </ol>

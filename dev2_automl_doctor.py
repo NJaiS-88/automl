@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
@@ -39,6 +40,15 @@ from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.decomposition import PCA
 from sklearn.model_selection import StratifiedKFold, KFold
+
+
+def _memory_safe_mode():
+    flag = os.getenv("AUTOML_MEMORY_SAFE", "").strip().lower()
+    return flag in {"1", "true", "yes", "on"} or bool(os.getenv("RENDER"))
+
+
+def _parallel_jobs():
+    return 1 if _memory_safe_mode() else -1
 
 
 def load_csv(file):
@@ -216,16 +226,17 @@ def build_ensemble(models, problem_type):
 
 def train_models_core(X, y, preprocessor, selector, problem_type):
     models = smart_model_selector(X, y, problem_type)
-    models = dict(list(models.items())[:4])
+    models = dict(list(models.items())[: (3 if _memory_safe_mode() else 4)])
     scores = {}
 
-    if X.shape[0] > 5000:
-        X_sample = X.sample(5000, random_state=42)
+    sample_cap = 3000 if _memory_safe_mode() else 5000
+    if X.shape[0] > sample_cap:
+        X_sample = X.sample(sample_cap, random_state=42)
         y_sample = y.loc[X_sample.index]
     else:
         X_sample, y_sample = X, y
 
-    cv = _safe_cv(problem_type, y_sample, preferred_splits=3)
+    cv = _safe_cv(problem_type, y_sample, preferred_splits=(2 if _memory_safe_mode() else 3))
 
     scoring = "f1_weighted" if problem_type == "classification" else "r2"
 
@@ -240,7 +251,7 @@ def train_models_core(X, y, preprocessor, selector, problem_type):
         )
 
         score = cross_val_score(
-            pipe, X_sample, y_sample, cv=cv, scoring=scoring, n_jobs=-1
+            pipe, X_sample, y_sample, cv=cv, scoring=scoring, n_jobs=_parallel_jobs()
         ).mean()
         scores[name] = {scoring: score}
         print(f"{name} ({scoring}): {score:.4f}")
