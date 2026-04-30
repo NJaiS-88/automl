@@ -7,17 +7,29 @@ const runsRouter = require("./routes/runs");
 const authRouter = require("./routes/auth");
 
 const app = express();
+function normalizeOrigin(origin) {
+  return String(origin || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
 const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("CORS blocked for origin: " + origin));
+      const normalizedRequestOrigin = normalizeOrigin(origin);
+      const isAllowedExact = allowedOrigins.includes(normalizedRequestOrigin);
+      const isVercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(
+        normalizedRequestOrigin
+      );
+      if (isAllowedExact || isVercelPreview) return callback(null, true);
+      return callback(null, false);
     },
     credentials: true,
   })
