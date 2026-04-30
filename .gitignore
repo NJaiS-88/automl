@@ -1,0 +1,52 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+*.pem
+*.key
+*.crt
+
+# --- Node / frontend/backend ---
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+backend/.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# --- Build / generated runtime artifacts ---
+backend/uploads/
+backend/generated/
+*.pkl
+*.joblib
+*.pickle
+*.zip
+*.tar.gz
+*.tmp
+
+# --- Local data artifacts / reports ---
+pipeline_report.json
+tailored_pipeline_report.json
+
+# --- IDE / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
