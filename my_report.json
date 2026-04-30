@@ -1,0 +1,17 @@
+{
+  "problem_type": "classification",
+  "chosen_model": "Ensemble",
+  "selected_version": "original",
+  "preprocessing_strategy": "IterativeImputer + StandardScaler + OneHotEncoder",
+  "feature_engineering_strategy": "PolynomialFeatures",
+  "rows_after_cleaning_reference": 302,
+  "feature_count_reference": 13,
+  "target_col": "target",
+  "metrics": {
+    "train_acc": 0.9253112033195021,
+    "test_acc": 0.8524590163934426,
+    "f1": 0.8504217202928273,
+    "precision": 0.8604306561128408,
+    "recall": 0.8524590163934426
+  }
+}

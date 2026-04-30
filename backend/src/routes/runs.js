@@ -7,7 +7,11 @@ const { randomUUID } = require("crypto");
 const RunHistory = require("../models/RunHistory");
 const { requireAuth } = require("../middleware/auth");
 const { readCsvPreview } = require("../services/csvService");
-const { runPythonPipeline, runPythonPredict } = require("../services/pipelineService");
+const {
+  runPythonPipeline,
+  runPythonPredict,
+  runPythonVisualization,
+} = require("../services/pipelineService");
 
 const router = express.Router();
 
@@ -25,6 +29,12 @@ const upload = multer({ storage });
 function toGeneratedUrl(absPath) {
   const rel = path.relative(generatedDir, absPath).replace(/\\/g, "/");
   return `/generated/${rel}`;
+}
+
+function keepLastN(items, n = 6) {
+  const arr = Array.isArray(items) ? items : [];
+  if (arr.length <= n) return arr;
+  return arr.slice(-n);
 }
 
 function getModelImportLine(problemType, modelName) {
@@ -130,8 +140,8 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
       run.reportPath = result.report_path;
       run.modelPath = result.model_path;
       run.pythonScriptPath = result.python_script_path;
-      run.plotPaths = result.plot_paths || [];
-      run.plotUrls = (result.plot_paths || []).map(toGeneratedUrl);
+      run.plotPaths = keepLastN(result.plot_paths || [], 6);
+      run.plotUrls = keepLastN((result.plot_paths || []).map(toGeneratedUrl), 6);
       run.featureColumns = result.feature_columns || columns;
       run.metricsSummary = result.report?.dev3?.final_metrics || null;
       run.logs = result.logs || "";
@@ -162,6 +172,81 @@ router.post("/:id/predict", async (req, res, next) => {
       payload,
     });
     res.json(prediction);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/visualize", async (req, res, next) => {
+  try {
+    const run = await RunHistory.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!run) return res.status(404).json({ message: "Run not found" });
+    if (!run.datasetPath) return res.status(400).json({ message: "Dataset is unavailable." });
+
+    const {
+      mode,
+      plotTypes = [],
+      xCol = null,
+      yCol = null,
+      singleCol = null,
+      hueCol = null,
+      multivariateCols = [],
+    } = req.body || {};
+
+    if (!mode || !Array.isArray(plotTypes) || plotTypes.length === 0) {
+      return res.status(400).json({ message: "mode and at least one plot type are required." });
+    }
+
+    const projectRoot = process.env.PROJECT_ROOT || path.resolve(process.cwd(), "..");
+    const result = await runPythonVisualization({
+      projectRoot,
+      datasetPath: run.datasetPath,
+      runId: String(run._id),
+      payload: {
+        mode,
+        plotTypes,
+        xCol,
+        yCol,
+        singleCol,
+        hueCol,
+        multivariateCols,
+      },
+    });
+    const plotUrls = (result.plot_paths || []).map(toGeneratedUrl);
+    res.json({ plotUrls, errors: result.errors || [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/plots/add", async (req, res, next) => {
+  try {
+    const run = await RunHistory.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!run) return res.status(404).json({ message: "Run not found" });
+
+    const incomingPlotUrls = Array.isArray(req.body?.plotUrls) ? req.body.plotUrls : [];
+    const validUrls = incomingPlotUrls.filter(
+      (url) => typeof url === "string" && url.startsWith("/generated/")
+    );
+    if (!validUrls.length) {
+      return res.status(400).json({ message: "No valid plotUrls provided." });
+    }
+
+    const existingUrls = Array.isArray(run.plotUrls) ? run.plotUrls : [];
+    const existingPaths = Array.isArray(run.plotPaths) ? run.plotPaths : [];
+    const nextUrls = Array.from(new Set([...existingUrls, ...validUrls]));
+
+    const derivedPaths = validUrls.map((url) => {
+      const rel = url.replace(/^\/generated\//, "");
+      return path.join(generatedDir, rel);
+    });
+    const nextPaths = Array.from(new Set([...existingPaths, ...derivedPaths]));
+
+    run.plotUrls = nextUrls;
+    run.plotPaths = nextPaths;
+    await run.save();
+
+    res.json({ plotUrls: run.plotUrls });
   } catch (err) {
     next(err);
   }

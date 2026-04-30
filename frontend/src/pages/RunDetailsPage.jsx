@@ -1,15 +1,17 @@
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import api from "../api";
 import MetricsCard from "../components/MetricsCard";
 import ModelReportAccordion from "../components/ModelReportAccordion";
 import PlotGallery from "../components/PlotGallery";
 import PredictionSection from "../components/PredictionSection";
+import InteractiveVisualizationBuilder from "../components/InteractiveVisualizationBuilder";
 import VisualizationPanel from "../components/VisualizationPanel";
 import { useRunStore } from "../store";
 
 function RunDetailsPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { selectedRun, fetchRunById, loading, error } = useRunStore();
 
   useEffect(() => {
@@ -17,6 +19,10 @@ function RunDetailsPage() {
   }, [id, fetchRunById]);
 
   const report = selectedRun?.report;
+  const activeSection = searchParams.get("section") || "dashboard";
+  const finalChosenModel =
+    report?.dev3?.best_candidate_name ||
+    (report?.dev2?.choice?.members?.length ? report.dev2.choice.members.join(", ") : "Unavailable");
 
   if (loading) return <p>Loading run...</p>;
   if (error) return <p className="error-text">{error}</p>;
@@ -47,33 +53,64 @@ function RunDetailsPage() {
     }
   };
 
-  return (
-    <div className="grid-two">
-      <div>
-        <div className="panel">
-          <h2>{selectedRun.datasetFilename}</h2>
-          <p>Target: {selectedRun.targetCol}</p>
-          <p>Status: <strong>{selectedRun.status}</strong></p>
-          <button className="secondary-btn inline" onClick={downloadFullCode}>
-            Download Python Training Script
-          </button>
-        </div>
+  const downloadReportJson = () => {
+    try {
+      const blob = new Blob([JSON.stringify(report || {}, null, 2)], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${selectedRun.datasetFilename || "run"}-report.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert("Unable to download report JSON.");
+    }
+  };
 
-        <MetricsCard title="Dev2 Baseline Metrics" metrics={report?.dev2?.baseline_metrics} />
-        <MetricsCard title="Dev3 Final Metrics" metrics={report?.dev3?.final_metrics} />
-        <VisualizationPanel report={report} />
-        <ModelReportAccordion report={report} />
-      </div>
-      <div>
-        <PredictionSection run={selectedRun} />
-        <div className="panel">
-          <h2>Raw Report JSON</h2>
-          <pre className="code-block">{JSON.stringify(report || {}, null, 2)}</pre>
-        </div>
-      </div>
-      <div className="full-span">
-        <PlotGallery plotUrls={selectedRun.plotUrls || []} />
-      </div>
+  return (
+    <div className="run-details-content">
+      {activeSection === "dashboard" && (
+        <>
+          <section className="panel">
+            <h2>{selectedRun.datasetFilename}</h2>
+            <p>Target: {selectedRun.targetCol}</p>
+            <p>Status: <strong>{selectedRun.status}</strong></p>
+            <p>Final Chosen Model: <strong>{finalChosenModel}</strong></p>
+          </section>
+          <MetricsCard title="Final Metrics" metrics={report?.dev3?.final_metrics} />
+          <ModelReportAccordion report={report} />
+          <div className="panel">
+            <h2>Raw Report JSON</h2>
+            <pre className="code-block">{JSON.stringify(report || {}, null, 2)}</pre>
+          </div>
+        </>
+      )}
+
+      {activeSection === "downloads" && (
+        <section className="panel">
+          <h2>Downloads</h2>
+          <div className="viz-mode-row">
+            <button className="secondary-btn" onClick={downloadReportJson}>
+              Download JSON
+            </button>
+            <button className="secondary-btn" onClick={downloadFullCode}>
+              Download Code
+            </button>
+          </div>
+        </section>
+      )}
+
+      {activeSection === "predict" && <PredictionSection run={selectedRun} />}
+
+      {activeSection === "visualizations" && (
+        <>
+          <VisualizationPanel report={report} />
+          <InteractiveVisualizationBuilder run={selectedRun} />
+          <PlotGallery plotUrls={selectedRun.plotUrls || []} />
+        </>
+      )}
     </div>
   );
 }

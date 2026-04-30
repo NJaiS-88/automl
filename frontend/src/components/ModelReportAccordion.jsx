@@ -12,12 +12,12 @@ function ModelReportAccordion({ report }) {
             {modelName} <span>{score?.toFixed ? score.toFixed(4) : score}</span>
           </summary>
           <div className="details-body">
-            <p><strong>Dev2 Score:</strong> {String(score)}</p>
+            <p><strong>Model Score:</strong> {String(score)}</p>
             <p>
-              <strong>Dev3 Candidate:</strong>{" "}
+              <strong>Final Candidate:</strong>{" "}
               {candidateScores[modelName]
                 ? `train=${candidateScores[modelName].train}, test=${candidateScores[modelName].test}`
-                : "Not evaluated / not selected in Dev3"}
+                : "Not evaluated / not selected in final optimization"}
             </p>
           </div>
         </details>

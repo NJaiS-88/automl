@@ -130,4 +130,59 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
   });
 }
 
-module.exports = { runPythonPipeline, runPythonPredict };
+function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, "../../python/generate_visualizations_api.py");
+    const payloadPath = path.join(
+      projectRoot,
+      "backend",
+      "generated",
+      `tmp_viz_payload_${runId}.json`
+    );
+    const outputDir = path.join(
+      projectRoot,
+      "backend",
+      "generated",
+      `${runId}-custom-viz-${Date.now()}`
+    );
+    fs.writeFileSync(payloadPath, JSON.stringify(payload), "utf-8");
+
+    const args = [
+      scriptPath,
+      "--dataset-path",
+      datasetPath,
+      "--payload-path",
+      payloadPath,
+      "--output-dir",
+      outputDir,
+    ];
+    const pythonProcess = spawn("python", args, {
+      cwd: projectRoot,
+      env: process.env,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    pythonProcess.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+
+    pythonProcess.on("close", (code) => {
+      try {
+        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
+      } catch (_e) {
+        // ignore cleanup errors
+      }
+      if (code !== 0) {
+        reject(new Error(stderr || stdout || "Visualization generation failed."));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (_err) {
+        reject(new Error(`Invalid visualization output:\n${stdout}\n${stderr}`));
+      }
+    });
+  });
+}
+
+module.exports = { runPythonPipeline, runPythonPredict, runPythonVisualization };

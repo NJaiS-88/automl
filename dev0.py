@@ -270,23 +270,6 @@ def multivariate_analysis(df, num_cols, target_col=None, hue_col=None):
         sns.heatmap(df[corr_cols].corr(), annot=True, cmap="coolwarm")
         plt.title("Correlation Matrix")
         plt.show()
-    
-    # 🔹 Pairplot (always at end, but on a limited meaningful subset)
-    pairplot_cols = num_cols
-    if len(pairplot_cols) >= 2:
-        plot_df = df[pairplot_cols].dropna()
-        if len(plot_df) > SAMPLE_ROWS_FOR_PLOTS:
-            plot_df = plot_df.sample(SAMPLE_ROWS_FOR_PLOTS, random_state=42)
-        if hue_col and hue_col not in pairplot_cols:
-            hue_df = df[pairplot_cols + [hue_col]].dropna()
-            if len(hue_df) > SAMPLE_ROWS_FOR_PLOTS:
-                hue_df = hue_df.sample(SAMPLE_ROWS_FOR_PLOTS, random_state=42)
-            sns.pairplot(hue_df, hue=hue_col)
-        else:
-            sns.pairplot(plot_df)
-        plt.show()
-    else:
-        print("Warning: Not enough numeric columns for pairplot")
 
 
 # ============================================
@@ -340,21 +323,11 @@ def run_eda(file_path, target_col=None):
         print(f"\nSkipping ID-like columns: {selected['id_cols']}")
     if selected["binary_cols"]:
         print(f"Binary columns detected: {selected['binary_cols']}")
-    
-    univariate_analysis(df, selected["num_cols"], selected["cat_cols"], hue_col=hue_col)
-    
-    bivariate_analysis(
-        df, selected["num_cols"], selected["cat_cols"], target_col, hue_col=hue_col
-    )
-    
+
+    # EDA visuals intentionally restricted to only correlation heatmap + pairplot.
     multivariate_analysis(df, selected["num_cols"], target_col=target_col, hue_col=hue_col)
     
-    if target_col:
-        target_analysis(
-            df, target_col, selected["num_cols"], selected["cat_cols"], hue_col=hue_col
-        )
-    
-    print("\nEDA COMPLETED SUCCESSFULLY!")
+    print("\nEDA COMPLETED SUCCESSFULLY! (heatmap only)")
 
 
 def parse_args():

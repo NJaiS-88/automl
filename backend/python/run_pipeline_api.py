@@ -29,6 +29,32 @@ def _install_plot_capture(plot_dir: Path):
     return plt
 
 
+def _plot_training_testing_accuracy(final_metrics):
+    train_acc = final_metrics.get("train_acc")
+    test_acc = final_metrics.get("test_acc")
+    if train_acc is None or test_acc is None:
+        return
+
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(6, 4))
+    bars = plt.bar(["Training Accuracy", "Testing Accuracy"], [train_acc, test_acc], color=["#60a5fa", "#2563eb"])
+    plt.ylim(0, 1.05)
+    plt.title("Training vs Testing Accuracy")
+    plt.ylabel("Accuracy")
+    for bar, value in zip(bars, [train_acc, test_acc]):
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"{value:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    plt.tight_layout()
+    plt.show()
+
+
 def train_and_collect(project_root, dataset_path, target_col, visualizations="no", random_state=42):
     import sys
 
@@ -132,6 +158,8 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
         y_train=y_train,
         y_test=y_test,
     )
+    if problem_type == "classification":
+        _plot_training_testing_accuracy(final_metrics)
 
     report = {
         "data_report": data_report,

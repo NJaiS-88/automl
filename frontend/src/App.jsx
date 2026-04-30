@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import "./App.css";
 import { useAuthStore } from "./authStore";
 import HistoryPage from "./pages/HistoryPage";
@@ -7,7 +7,11 @@ import RunDetailsPage from "./pages/RunDetailsPage";
 import RunPage from "./pages/RunPage";
 
 function App() {
+  const location = useLocation();
   const { user, logout } = useAuthStore();
+  const isDatasetPage = /^\/history\/[^/]+$/.test(location.pathname);
+  const datasetBasePath = isDatasetPage ? location.pathname : "";
+  const currentSection = new URLSearchParams(location.search).get("section") || "dashboard";
 
   if (!user) {
     return <AuthPage />;
@@ -24,6 +28,36 @@ function App() {
           <NavLink to="/history" className="nav-link">
             History
           </NavLink>
+          {isDatasetPage && (
+            <>
+              <p className="sidebar-subtitle">Dataset Sections</p>
+              <NavLink
+                to={`${datasetBasePath}?section=dashboard`}
+                className={`nav-link ${currentSection === "dashboard" ? "active" : ""}`}
+              >
+                Dashboard
+              </NavLink>
+              <NavLink
+                to={`${datasetBasePath}?section=visualizations`}
+                className={`nav-link ${currentSection === "visualizations" ? "active" : ""}`}
+              >
+                Visualizations
+              </NavLink>
+              <NavLink
+                to={`${datasetBasePath}?section=predict`}
+                className={`nav-link ${currentSection === "predict" ? "active" : ""}`}
+              >
+                Predict
+              </NavLink>
+              <NavLink
+                to={`${datasetBasePath}?section=downloads`}
+                className={`nav-link ${currentSection === "downloads" ? "active" : ""}`}
+              >
+                Downloads
+              </NavLink>
+              <NavLink to="/" className="nav-link">Back to Main</NavLink>
+            </>
+          )}
         </nav>
         <div className="sidebar-user">
           <p>{user.name}</p>
