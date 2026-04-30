@@ -1,3 +1,5 @@
+import { BACKEND_BASE_URL } from "../api";
+
 function PlotGallery({ plotUrls = [] }) {
   if (!plotUrls.length) {
     return (
@@ -16,13 +18,13 @@ function PlotGallery({ plotUrls = [] }) {
           <a
             key={url}
             className="plot-link"
-            href={`http://localhost:4000${url}`}
+            href={`${BACKEND_BASE_URL}${url}`}
             target="_blank"
             rel="noreferrer"
           >
             <img
               className="plot-image"
-              src={`http://localhost:4000${url}`}
+              src={`${BACKEND_BASE_URL}${url}`}
               alt={`plot-${idx + 1}`}
               loading="lazy"
             />

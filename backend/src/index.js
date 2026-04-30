@@ -7,7 +7,21 @@ const runsRouter = require("./routes/runs");
 const authRouter = require("./routes/auth");
 
 const app = express();
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("CORS blocked for origin: " + origin));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "2mb" }));
 app.use("/generated", express.static(path.join(process.cwd(), "generated")));
 

@@ -249,6 +249,8 @@ Set env vars in your host:
 - `CLIENT_URL`
 - `PROJECT_ROOT`
 - `PORT`
+- Install Python deps for pipeline bridge:
+  - `pip install -r backend/requirements.txt`
 
 ### Frontend (production)
 
@@ -260,6 +262,43 @@ npm run preview
 ```
 
 Deploy `frontend/dist` on static hosting (Vercel/Netlify/etc), and point API base URL to deployed backend.
+
+## Vercel + Render (Recommended)
+
+### 1) Deploy backend to Render
+
+- Use `backend/` as root directory.
+- Build command:
+  - `npm install && pip install -r requirements.txt`
+- Start command:
+  - `npm start`
+- Environment variables:
+  - `MONGODB_URI`
+  - `JWT_SECRET`
+  - `PORT=4000`
+  - `PROJECT_ROOT=/opt/render/project/src`
+  - `CLIENT_URL=https://<your-vercel-domain>`
+
+You can also use provided `render.yaml`.
+
+### 2) Deploy frontend to Vercel
+
+- Framework preset: Vite
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variables:
+  - `VITE_API_BASE_URL=https://<your-render-backend>/api`
+  - `VITE_BACKEND_BASE_URL=https://<your-render-backend>`
+
+### 3) Update backend CORS
+
+Set backend `CLIENT_URL` to your Vercel URL.
+For multiple origins (local + prod), comma-separate:
+
+```env
+CLIENT_URL=http://localhost:5173,https://your-app.vercel.app
+```
 
 ## GitHub Safety (No secrets)
 
