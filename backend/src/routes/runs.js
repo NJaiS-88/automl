@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 
 const RunHistory = require("../models/RunHistory");
 const { requireAuth } = require("../middleware/auth");
@@ -113,7 +113,7 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
       featureColumns: columns,
     });
 
-    const runKey = `${run._id}-${uuidv4()}`;
+    const runKey = `${run._id}-${randomUUID()}`;
     const projectRoot = process.env.PROJECT_ROOT || path.resolve(process.cwd(), "..");
 
     try {
