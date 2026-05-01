@@ -11,16 +11,17 @@ import {
 function VisualizationPanel({ report }) {
   if (!report) return null;
 
-  const dev2Ranked = report.dev2?.ranked_models || [];
-  const lineData = dev2Ranked.map(([name, score], idx) => ({
+  const candidateScores = report.dev3?.candidate_scores || {};
+  const lineData = Object.entries(candidateScores).map(([name, scoreObj], idx) => ({
     idx,
     model: name,
-    score: Number(score),
+    score: Number(scoreObj?.test ?? scoreObj?.train ?? 0),
   }));
 
   return (
     <div className="panel">
       <h2>Visualization Overview</h2>
+      {!lineData.length && <p>No visualization metrics available.</p>}
       <div className="chart-wrapper">
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={lineData}>

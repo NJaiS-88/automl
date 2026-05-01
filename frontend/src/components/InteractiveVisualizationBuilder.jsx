@@ -1,5 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api, { BACKEND_BASE_URL } from "../api";
+import { AnimatePresence, motion } from "framer-motion";
+import { gsap } from "gsap";
+import { FiMic, FiMicOff } from "react-icons/fi";
+import useVoiceNavigator from "../hooks/useVoiceNavigator";
+import SilverLoader from "./SilverLoader";
 import { useRunStore } from "../store";
 
 function inferColumnType(rows, column) {
@@ -41,6 +46,7 @@ function dropZoneLabel(kind) {
 
 function InteractiveVisualizationBuilder({ run }) {
   const fetchRunById = useRunStore((state) => state.fetchRunById);
+  const containerRef = useRef(null);
   const rows = useMemo(() => run?.previewRows || [], [run]);
   const columns = useMemo(() => {
     const featureCols = run?.featureColumns || [];
@@ -81,6 +87,15 @@ function InteractiveVisualizationBuilder({ run }) {
   }, [mode, univariateType, xType, yType]);
 
   const normalizedSelectedCharts = selectedCharts.filter((item) => validChartOptions.includes(item));
+
+  const selectChartFromSpeech = (spokenText) => {
+    const normalized = spokenText.toLowerCase();
+    const match = validChartOptions.find((chart) =>
+      normalized.includes(chart.replaceAll("_", " "))
+    );
+    if (!match) return;
+    setSelectedCharts((prev) => (prev.includes(match) ? prev : [...prev, match]));
+  };
 
   const chartLabel = (chartType) => {
     const labels = {
@@ -213,12 +228,64 @@ function InteractiveVisualizationBuilder({ run }) {
     }
   };
 
+  const {
+    transcript,
+    listening,
+    browserSupportsSpeechRecognition,
+    resetTranscript,
+    start,
+    stop,
+  } = useVoiceNavigator([
+    {
+      phrases: ["generate visualization", "generate visualizations"],
+      onMatch: () => generateVisualizations(),
+    },
+    {
+      phrases: ["reset visualization", "reset selection"],
+      onMatch: () => clearSelections(),
+    },
+    {
+      phrases: ["select *", "choose *"],
+      onMatch: (spoken) => selectChartFromSpeech(spoken),
+    },
+  ]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    gsap.fromTo(
+      containerRef.current,
+      { opacity: 0, y: 14 },
+      { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" }
+    );
+  }, []);
+
   return (
-    <div className="panel">
+    <motion.div
+      className="panel"
+      ref={containerRef}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+    >
       <h2>Interactive Visualization Builder</h2>
       <p className="viz-helper-text">
         Drag/drop only: assign columns to Univariate, X/Y, Hue, or Multivariate columns. Charts are generated in Python (matplotlib/seaborn/pandas).
       </p>
+      {browserSupportsSpeechRecognition && (
+        <div className="voice-row">
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={listening ? stop : start}
+          >
+            {listening ? <FiMicOff /> : <FiMic />} {listening ? "Stop Voice" : "Start Voice"}
+          </button>
+          <button type="button" className="secondary-btn" onClick={resetTranscript}>
+            Clear Voice Text
+          </button>
+          <span className="voice-transcript">Heard: {transcript || "..."}</span>
+        </div>
+      )}
 
       {!columns.length || !rows.length ? (
         <p>No preview data available for interactive plots.</p>
@@ -266,7 +333,8 @@ function InteractiveVisualizationBuilder({ run }) {
                 ))}
               </div>
 
-              <div className="viz-drop-grid">
+              <div className="viz-drop-shell">
+                <div className="viz-drop-grid">
                 {(modeDropKinds[mode] || []).map((kind) => {
                   const selected =
                     kind === "x"
@@ -347,6 +415,7 @@ function InteractiveVisualizationBuilder({ run }) {
                     </div>
                   );
                 })}
+                </div>
               </div>
             </div>
           </div>
@@ -361,7 +430,7 @@ function InteractiveVisualizationBuilder({ run }) {
               disabled={loading || !canGenerate}
               onClick={generateVisualizations}
             >
-              {loading ? "Generating..." : "Generate Python Visualizations"}
+              {loading ? "Generating..." : "Generate Visualizations"}
             </button>
           </div>
 
@@ -409,8 +478,16 @@ function InteractiveVisualizationBuilder({ run }) {
                 </button>
               </div>
             )}
+            <AnimatePresence>
             {generatedUrls.map((url) => (
-              <div key={url} className="viz-generated-item">
+              <motion.div
+                key={url}
+                className="viz-generated-item"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
+              >
                 <label className="viz-generated-select">
                   <input
                     type="checkbox"
@@ -432,12 +509,20 @@ function InteractiveVisualizationBuilder({ run }) {
                     loading="lazy"
                   />
                 </a>
-              </div>
+              </motion.div>
             ))}
+            </AnimatePresence>
           </div>
         </>
       )}
-    </div>
+      {loading && (
+        <div className="content-overlay silver">
+          <div className="overlay-content loading-overlay-content">
+            <SilverLoader text="Generating visualizations with a silver glow..." />
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 

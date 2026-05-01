@@ -4,6 +4,7 @@ const runHistorySchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     name: { type: String, required: true },
+    projectName: { type: String, default: "" },
     datasetFilename: { type: String, required: true },
     datasetPath: { type: String, required: true },
     targetCol: { type: String, required: true },
@@ -22,6 +23,10 @@ const runHistorySchema = new mongoose.Schema(
     featureColumns: { type: [String], default: [] },
     previewRows: { type: [mongoose.Schema.Types.Mixed], default: [] },
     metricsSummary: { type: mongoose.Schema.Types.Mixed, default: null },
+    currentStage: { type: String, default: "pending" },
+    progressPct: { type: Number, default: 0 },
+    stageMessage: { type: String, default: "" },
+    progressUpdatedAt: { type: Date, default: null },
     logs: { type: String, default: "" },
     error: { type: String, default: null },
   },

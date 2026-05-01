@@ -7,6 +7,7 @@ import PlotGallery from "../components/PlotGallery";
 import PredictionSection from "../components/PredictionSection";
 import InteractiveVisualizationBuilder from "../components/InteractiveVisualizationBuilder";
 import VisualizationPanel from "../components/VisualizationPanel";
+import SilverLoader from "../components/SilverLoader";
 import { useRunStore } from "../store";
 
 function RunDetailsPage() {
@@ -20,11 +21,17 @@ function RunDetailsPage() {
 
   const report = selectedRun?.report;
   const activeSection = searchParams.get("section") || "dashboard";
+  const dev2Choice = report?.dev2?.choice || {};
+  const dev2SelectedModel =
+    dev2Choice.type === "ensemble"
+      ? `Ensemble (${(dev2Choice.members || []).join(", ")})`
+      : (dev2Choice.members || [])[0] || "Unavailable";
   const finalChosenModel =
-    report?.dev3?.best_candidate_name ||
-    (report?.dev2?.choice?.members?.length ? report.dev2.choice.members.join(", ") : "Unavailable");
+    report?.dev3?.selected_model_version === "improved"
+      ? report?.dev3?.best_candidate_name || dev2SelectedModel
+      : dev2SelectedModel;
 
-  if (loading) return <p>Loading run...</p>;
+  if (loading) return <SilverLoader text="Loading run insights..." />;
   if (error) return <p className="error-text">{error}</p>;
   if (!selectedRun) return <p>Run not found.</p>;
 

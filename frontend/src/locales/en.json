@@ -1,0 +1,73 @@
+{
+  "app": {
+    "brand": "DataPilot AI",
+    "newRun": "New Run",
+    "history": "History",
+    "dashboard": "Dashboard",
+    "visualizations": "Visualizations",
+    "predict": "Predict",
+    "downloads": "Downloads",
+    "backToMain": "Back to Main",
+    "datasetSections": "Dataset Sections",
+    "logout": "Logout",
+    "title": "Professional AutoML Dashboard",
+    "subtitle": "Upload dataset, train, analyze, predict and export.",
+    "landing": "Landing",
+    "openSettings": "Settings",
+    "theme": "Theme",
+    "sidebarWidth": "Sidebar Width",
+    "language": "Language",
+    "voiceStart": "Start Voice",
+    "voiceStop": "Stop Voice",
+    "voiceHeard": "Heard",
+    "clear": "Clear",
+    "changePasswordCurrent": "Change Password (Current)",
+    "changePasswordNew": "Change Password (New)",
+    "changePassword": "Change Password",
+    "deleteAccountPassword": "Delete Account Password",
+    "deleteAccount": "Delete Account",
+    "passwordChanged": "Password changed successfully.",
+    "passwordChangeFailed": "Unable to change password.",
+    "accountDeleteFailed": "Unable to delete account."
+  },
+  "auth": {
+    "login": "Login",
+    "signup": "Sign Up",
+    "name": "Name",
+    "email": "Email",
+    "password": "Password",
+    "pleaseWait": "Please wait...",
+    "createAccount": "Create Account",
+    "needAccount": "Need an account? Sign Up",
+    "alreadyRegistered": "Already registered? Login"
+  },
+  "history": {
+    "title": "Run History",
+    "loading": "Loading your run history...",
+    "target": "Target",
+    "projectName": "Project Name",
+    "saveName": "Save Name",
+    "savedLocal": "Saved locally (backend rename API unavailable).",
+    "saved": "Saved.",
+    "deleteRun": "Delete",
+    "clearAll": "Clear All History"
+  },
+  "run": {
+    "title": "New Training Run"
+  },
+  "landing": {
+    "heroTitle": "Train Better Models Faster",
+    "heroSubtitle": "Upload datasets, run guided AutoML, and deploy insights with a polished workflow.",
+    "getStarted": "Get Started",
+    "aboutTitle": "About Us",
+    "aboutText": "We build practical machine learning tools for teams that need speed, clarity, and reliability.",
+    "featuresTitle": "Features",
+    "feature1": "Guided AutoML training",
+    "feature2": "Interactive visualizations",
+    "feature3": "Prediction sandbox",
+    "feature4": "Exportable training outputs",
+    "contactTitle": "Contact Us",
+    "contactText": "Reach out at support@datapilot.ai",
+    "footer": "DataPilot AI. All rights reserved."
+  }
+}

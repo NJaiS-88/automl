@@ -313,11 +313,17 @@ def evaluate(pipe, X_train, X_test, y_train, y_test, problem_type):
             ),
             "roc_auc": roc,
         }
+    try:
+        rmse = mean_squared_error(y_test, y_pred_test, squared=False)
+    except TypeError:
+        # Older scikit-learn versions do not support the "squared" argument.
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+
     return {
         "train_r2": r2_score(y_train, y_pred_train),
         "test_r2": r2_score(y_test, y_pred_test),
         "mae": mean_absolute_error(y_test, y_pred_test),
-        "rmse": mean_squared_error(y_test, y_pred_test, squared=False),
+        "rmse": float(rmse),
     }
 
 

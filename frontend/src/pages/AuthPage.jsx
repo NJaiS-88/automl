@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../authStore";
 
 function AuthPage() {
+  const { t } = useTranslation();
   const { login, signup, loading, error } = useAuthStore();
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
@@ -20,15 +23,15 @@ function AuthPage() {
   return (
     <div className="auth-wrap">
       <form className="panel auth-panel" onSubmit={handleSubmit}>
-        <h2>{mode === "login" ? "Login" : "Sign Up"}</h2>
+        <h2>{mode === "login" ? t("auth.login") : t("auth.signup")}</h2>
         {mode === "signup" && (
           <div className="field">
-            <label>Name</label>
+            <label>{t("auth.name")}</label>
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
         )}
         <div className="field">
-          <label>Email</label>
+          <label>{t("auth.email")}</label>
           <input
             type="email"
             value={email}
@@ -37,7 +40,7 @@ function AuthPage() {
           />
         </div>
         <div className="field">
-          <label>Password</label>
+          <label>{t("auth.password")}</label>
           <input
             type="password"
             value={password}
@@ -46,7 +49,7 @@ function AuthPage() {
           />
         </div>
         <button className="primary-btn" disabled={loading}>
-          {loading ? "Please wait..." : mode === "login" ? "Login" : "Create Account"}
+          {loading ? t("auth.pleaseWait") : mode === "login" ? t("auth.login") : t("auth.createAccount")}
         </button>
         {error && <p className="error-text">{error}</p>}
         <button
@@ -54,8 +57,11 @@ function AuthPage() {
           className="secondary-btn switch-btn"
           onClick={() => setMode(mode === "login" ? "signup" : "login")}
         >
-          {mode === "login" ? "Need an account? Sign Up" : "Already registered? Login"}
+          {mode === "login" ? t("auth.needAccount") : t("auth.alreadyRegistered")}
         </button>
+        <Link to="/" className="secondary-btn switch-btn">
+          {t("app.landing")}
+        </Link>
       </form>
     </div>
   );
