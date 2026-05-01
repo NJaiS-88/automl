@@ -7,6 +7,15 @@ from pathlib import Path
 import pandas as pd
 
 
+def _emit_progress(stage: str, pct: int, message: str):
+    payload = {
+        "currentStage": stage,
+        "progressPct": pct,
+        "stageMessage": message,
+    }
+    print(f"PROGRESS: {json.dumps(payload)}", flush=True)
+
+
 def _install_plot_capture(plot_dir: Path):
     import matplotlib
 
@@ -82,10 +91,12 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     )
     from dev3_auto_optimization import optimize_model
 
+    _emit_progress("analyzing", 10, "Analyzing your dataset...")
     raw_df = pd.read_csv(dataset_path)
     raw_df.columns = [c.strip() for c in raw_df.columns]
     target_col = _resolve_target_column(raw_df, target_col)
 
+    _emit_progress("preprocessing", 30, "Preprocessing and cleaning data...")
     clean_df, data_report = run_dev1_data_pipeline(raw_df, target_col)
     X, y = split_features_target(clean_df, target_col)
     X = X.copy(deep=True)
@@ -95,6 +106,7 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     num_cols, cat_cols = infer_column_types(X)
     preprocessor = build_preprocessor(num_cols, cat_cols, use_iterative=(X.shape[0] < 2000))
     selector = get_feature_selector(problem_type, X)
+    _emit_progress("training", 55, "Training model candidates...")
     cv_scores = train_models_core(X, y, preprocessor, selector, problem_type)
 
     if problem_type == "classification":
@@ -133,6 +145,7 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     )
     baseline_metrics = evaluate(trained_model, X_train, X_test, y_train, y_test, problem_type)
 
+    _emit_progress("evaluating", 80, "Evaluating and optimizing models...")
     optimization = optimize_model(
         trained_model,
         X_train,
@@ -161,6 +174,7 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     if problem_type == "classification":
         _plot_training_testing_accuracy(final_metrics)
 
+    _emit_progress("finalize", 95, "Finalizing artifacts...")
     report = {
         "data_report": data_report,
         "problem_type": problem_type,
@@ -240,6 +254,7 @@ def main():
         "feature_columns": trained["feature_columns"],
         "plot_paths": [str(p) for p in sorted(plot_dir.glob("*.png"))],
     }
+    _emit_progress("finalize", 100, "Pipeline completed successfully.")
     print(json.dumps(output, default=str))
 
 

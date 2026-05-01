@@ -2,11 +2,24 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg-primary: #f6f7f9;
+  --surface: #ffffff;
+  --text-primary: #111827;
+  --sidebar-width: 280px;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0f1722;
+  --surface: #182230;
+  --text-primary: #e2e8f0;
+}
+
 body {
   margin: 0;
   font-family: Inter, "Segoe UI", sans-serif;
-  background: #f5f7fb;
-  color: #111827;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 html,

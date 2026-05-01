@@ -1,6 +1,37 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { randomUUID } = require("crypto");
+
+function getPythonCommand() {
+  if (process.env.PYTHON_EXECUTABLE) {
+    return {
+      command: process.env.PYTHON_EXECUTABLE,
+      prefixArgs: [],
+    };
+  }
+
+  // On Windows, the py launcher is typically available even when "python" is not.
+  if (process.platform === "win32") {
+    return {
+      command: "py",
+      prefixArgs: ["-3"],
+    };
+  }
+
+  return {
+    command: "python3",
+    prefixArgs: [],
+  };
+}
+
+function spawnPythonProcess(args, projectRoot) {
+  const { command, prefixArgs } = getPythonCommand();
+  return spawn(command, [...prefixArgs, ...args], {
+    cwd: projectRoot,
+    env: process.env,
+  });
+}
 
 function parseLastJsonObject(rawOutput) {
   const lines = rawOutput
@@ -36,6 +67,7 @@ function runPythonPipeline({
   targetCol,
   runId,
   visualizations = "no",
+  onProgress = null,
 }) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, "../../python/run_pipeline_api.py");
@@ -53,23 +85,49 @@ function runPythonPipeline({
       visualizations,
     ];
 
-    const pythonProcess = spawn("python", args, {
-      cwd: projectRoot,
-      env: process.env,
-    });
+    const pythonProcess = spawnPythonProcess(args, projectRoot);
 
     let stdout = "";
     let stderr = "";
+    let settled = false;
 
     pythonProcess.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (!line.startsWith("PROGRESS:")) continue;
+        const raw = line.slice("PROGRESS:".length).trim();
+        try {
+          const progressPayload = JSON.parse(raw);
+          if (typeof onProgress === "function") {
+            Promise.resolve(onProgress(progressPayload)).catch(() => {
+              // ignore progress callback failures; main pipeline should continue
+            });
+          }
+        } catch (_e) {
+          // ignore malformed progress lines
+        }
+      }
     });
 
     pythonProcess.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
 
+    pythonProcess.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(
+          `Unable to start Python process. Set PYTHON_EXECUTABLE in backend/.env if needed. Details: ${err.message}`
+        )
+      );
+    });
+
     pythonProcess.on("close", (code) => {
+      if (settled) return;
+      settled = true;
       if (code !== 0) {
         reject(new Error(stderr || stdout || "Python pipeline execution failed."));
         return;
@@ -91,27 +149,41 @@ function runPythonPipeline({
 
 function runPythonPredict({ projectRoot, modelPath, payload }) {
   return new Promise((resolve, reject) => {
+    const generatedDir = path.join(projectRoot, "backend", "generated");
+    if (!fs.existsSync(generatedDir)) {
+      fs.mkdirSync(generatedDir, { recursive: true });
+    }
     const scriptPath = path.join(__dirname, "../../python/predict_api.py");
-    const payloadPath = path.join(
-      projectRoot,
-      "backend",
-      "generated",
-      "tmp_predict_payload.json"
-    );
+    const payloadPath = path.join(generatedDir, `tmp_predict_payload_${randomUUID()}.json`);
     fs.writeFileSync(payloadPath, JSON.stringify(payload), "utf-8");
 
     const args = [scriptPath, "--model-path", modelPath, "--payload-path", payloadPath];
-    const pythonProcess = spawn("python", args, {
-      cwd: projectRoot,
-      env: process.env,
-    });
+    const pythonProcess = spawnPythonProcess(args, projectRoot);
 
     let stdout = "";
     let stderr = "";
+    let settled = false;
     pythonProcess.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
+    pythonProcess.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      try {
+        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
+      } catch (_e) {
+        // ignore cleanup errors
+      }
+      reject(
+        new Error(
+          `Unable to start Python process. Set PYTHON_EXECUTABLE in backend/.env if needed. Details: ${err.message}`
+        )
+      );
+    });
+
     pythonProcess.on("close", (code) => {
+      if (settled) return;
+      settled = true;
       try {
         if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
       } catch (_e) {
@@ -156,17 +228,32 @@ function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
       "--output-dir",
       outputDir,
     ];
-    const pythonProcess = spawn("python", args, {
-      cwd: projectRoot,
-      env: process.env,
-    });
+    const pythonProcess = spawnPythonProcess(args, projectRoot);
 
     let stdout = "";
     let stderr = "";
+    let settled = false;
     pythonProcess.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
+    pythonProcess.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      try {
+        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
+      } catch (_e) {
+        // ignore cleanup errors
+      }
+      reject(
+        new Error(
+          `Unable to start Python process. Set PYTHON_EXECUTABLE in backend/.env if needed. Details: ${err.message}`
+        )
+      );
+    });
+
     pythonProcess.on("close", (code) => {
+      if (settled) return;
+      settled = true;
       try {
         if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
       } catch (_e) {

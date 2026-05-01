@@ -1,0 +1,73 @@
+{
+  "app": {
+    "brand": "डेटापायलट एआई",
+    "newRun": "नया रन",
+    "history": "इतिहास",
+    "dashboard": "डैशबोर्ड",
+    "visualizations": "विज़ुअलाइज़ेशन",
+    "predict": "प्रेडिक्ट",
+    "downloads": "डाउनलोड",
+    "backToMain": "मुख्य पेज पर जाएं",
+    "datasetSections": "डेटासेट सेक्शन",
+    "logout": "लॉगआउट",
+    "title": "प्रोफेशनल ऑटोएमएल डैशबोर्ड",
+    "subtitle": "डेटासेट अपलोड करें, ट्रेन करें, विश्लेषण करें, प्रेडिक्ट करें और एक्सपोर्ट करें।",
+    "landing": "लैंडिंग",
+    "openSettings": "सेटिंग्स",
+    "theme": "थीम",
+    "sidebarWidth": "साइडबार चौड़ाई",
+    "language": "भाषा",
+    "voiceStart": "वॉइस शुरू करें",
+    "voiceStop": "वॉइस बंद करें",
+    "voiceHeard": "सुना गया",
+    "clear": "साफ़ करें",
+    "changePasswordCurrent": "पासवर्ड बदलें (वर्तमान)",
+    "changePasswordNew": "पासवर्ड बदलें (नया)",
+    "changePassword": "पासवर्ड बदलें",
+    "deleteAccountPassword": "अकाउंट हटाने का पासवर्ड",
+    "deleteAccount": "अकाउंट हटाएं",
+    "passwordChanged": "पासवर्ड सफलतापूर्वक बदला गया।",
+    "passwordChangeFailed": "पासवर्ड नहीं बदला जा सका।",
+    "accountDeleteFailed": "अकाउंट हटाया नहीं जा सका।"
+  },
+  "auth": {
+    "login": "लॉगिन",
+    "signup": "साइन अप",
+    "name": "नाम",
+    "email": "ईमेल",
+    "password": "पासवर्ड",
+    "pleaseWait": "कृपया प्रतीक्षा करें...",
+    "createAccount": "खाता बनाएं",
+    "needAccount": "खाता नहीं है? साइन अप करें",
+    "alreadyRegistered": "पहले से पंजीकृत हैं? लॉगिन करें"
+  },
+  "history": {
+    "title": "रन इतिहास",
+    "loading": "आपका रन इतिहास लोड हो रहा है...",
+    "target": "टार्गेट",
+    "projectName": "प्रोजेक्ट नाम",
+    "saveName": "नाम सेव करें",
+    "savedLocal": "लोकली सेव किया गया (बैकएंड rename API उपलब्ध नहीं)।",
+    "saved": "सेव किया गया।",
+    "deleteRun": "हटाएं",
+    "clearAll": "पूरा इतिहास साफ करें"
+  },
+  "run": {
+    "title": "नया ट्रेनिंग रन"
+  },
+  "landing": {
+    "heroTitle": "बेहतर मॉडल तेजी से ट्रेन करें",
+    "heroSubtitle": "डेटासेट अपलोड करें, गाइडेड ऑटोएमएल चलाएं और बेहतर तरीके से इनसाइट्स प्राप्त करें।",
+    "getStarted": "शुरू करें",
+    "aboutTitle": "हमारे बारे में",
+    "aboutText": "हम ऐसी मशीन लर्निंग टूल्स बनाते हैं जो तेज़, स्पष्ट और भरोसेमंद हों।",
+    "featuresTitle": "विशेषताएं",
+    "feature1": "गाइडेड ऑटोएमएल ट्रेनिंग",
+    "feature2": "इंटरैक्टिव विज़ुअलाइज़ेशन",
+    "feature3": "प्रेडिक्शन सैंडबॉक्स",
+    "feature4": "एक्सपोर्टेबल ट्रेनिंग आउटपुट",
+    "contactTitle": "संपर्क करें",
+    "contactText": "हमसे support@datapilot.ai पर संपर्क करें",
+    "footer": "डेटापायलट एआई। सर्वाधिकार सुरक्षित।"
+  }
+}
