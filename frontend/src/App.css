@@ -544,6 +544,71 @@ textarea {
   gap: 12px;
 }
 
+.run-dashboard-hero {
+  border-top: none;
+  padding-top: 0;
+}
+
+.run-dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.run-dashboard-toolbar-text {
+  min-width: min(100%, 260px);
+  flex: 1 1 220px;
+}
+
+.run-dashboard-title {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.run-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+
+.run-dashboard-streamlit-alert {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(220, 53, 69, 0.12);
+  border: 1px solid rgba(220, 53, 69, 0.35);
+}
+
+.run-dashboard-streamlit-pre {
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  opacity: 0.95;
+}
+
+.run-dashboard-streamlit-running {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 0.95rem;
+}
+
+.run-dashboard-streamlit-label {
+  font-weight: 600;
+}
+
+.run-dashboard-copy-url {
+  margin-left: 0;
+}
+
 .auth-wrap {
   min-height: 100vh;
   display: grid;
