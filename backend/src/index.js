@@ -5,6 +5,7 @@ const cors = require("cors");
 const { connectDb } = require("./config/db");
 const runsRouter = require("./routes/runs");
 const authRouter = require("./routes/auth");
+const streamlitRouter = require("./routes/streamlit");
 
 const app = express();
 function normalizeOrigin(origin) {
@@ -54,6 +55,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/runs", runsRouter);
+app.use("/api/streamlit", streamlitRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

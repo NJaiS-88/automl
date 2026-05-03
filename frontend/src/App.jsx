@@ -136,12 +136,6 @@ function App() {
               >
                 {t("app.predict")}
               </NavLink>
-              <NavLink
-                to={`${datasetBasePath}?section=downloads`}
-                className={`nav-link ${currentSection === "downloads" ? "active" : ""}`}
-              >
-                {t("app.downloads")}
-              </NavLink>
               <NavLink to="/app" className="nav-link">{t("app.backToMain")}</NavLink>
             </>
           )}

@@ -1,5 +1,8 @@
-numpy==1.26.4
-pandas==2.2.2
-scikit-learn==1.5.2
-matplotlib==3.9.2
-seaborn==0.13.2
+# Flexible pins so pip can install binary wheels on Python 3.13+ (pinning numpy==1.26.4 may
+# force a source build and fail on Windows when only older GCC is available).
+numpy>=1.26.4,<3
+pandas>=2.2.2
+scikit-learn>=1.5.2
+matplotlib>=3.9.2
+seaborn>=0.13.2
+streamlit>=1.39.0,<2
