@@ -1,14 +1,16 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import "./index.css";
 import App from "./App.jsx";
+import { FrontendDialogsProvider } from "./components/FrontendDialogs";
 import "./i18n";
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <FrontendDialogsProvider>
+        <App />
+      </FrontendDialogsProvider>
     </BrowserRouter>
   </StrictMode>,
 )

@@ -3,11 +3,64 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 
+function sendDebugLog({ runId, hypothesisId, location, message, data }) {
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/d0ad5ed7-3b28-4634-b719-0df627901987", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "a75ed0",
+    },
+    body: JSON.stringify({
+      sessionId: "a75ed0",
+      runId,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 function getPythonCommand() {
-  if (process.env.PYTHON_EXECUTABLE) {
+  const rawPythonExecutable = process.env.PYTHON_EXECUTABLE;
+  const isPathLike =
+    typeof rawPythonExecutable === "string" &&
+    (rawPythonExecutable.includes("/") ||
+      rawPythonExecutable.includes("\\") ||
+      rawPythonExecutable.endsWith(".exe"));
+  sendDebugLog({
+    runId: "initial",
+    hypothesisId: "H1",
+    location: "pipelineService.js:getPythonCommand",
+    message: "Resolving Python command source",
+    data: {
+      hasPythonExecutableEnv: Boolean(rawPythonExecutable),
+      pythonExecutableEnv: rawPythonExecutable || null,
+      platform: process.platform,
+    },
+  });
+  if (rawPythonExecutable) {
+    if (!isPathLike || fs.existsSync(rawPythonExecutable)) {
+      return {
+        command: rawPythonExecutable,
+        prefixArgs: [],
+      };
+    }
+    sendDebugLog({
+      runId: "initial",
+      hypothesisId: "H6",
+      location: "pipelineService.js:getPythonCommand",
+      message: "Ignoring invalid PYTHON_EXECUTABLE path and falling back",
+      data: {
+        pythonExecutableEnv: rawPythonExecutable,
+      },
+    });
     return {
-      command: process.env.PYTHON_EXECUTABLE,
-      prefixArgs: [],
+      command: "py",
+      prefixArgs: ["-3"],
     };
   }
 
@@ -27,6 +80,18 @@ function getPythonCommand() {
 
 function spawnPythonProcess(args, projectRoot) {
   const { command, prefixArgs } = getPythonCommand();
+  sendDebugLog({
+    runId: "initial",
+    hypothesisId: "H2",
+    location: "pipelineService.js:spawnPythonProcess",
+    message: "Spawning Python process",
+    data: {
+      command,
+      prefixArgs,
+      argsPreview: Array.isArray(args) ? args.slice(0, 4) : [],
+      cwd: projectRoot,
+    },
+  });
   return spawn(command, [...prefixArgs, ...args], {
     cwd: projectRoot,
     env: process.env,
@@ -71,10 +136,16 @@ function runPythonPipeline({
 }) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, "../../python/run_pipeline_api.py");
+    const runtimeGeneratedDir = path.join(process.cwd(), "generated");
+    if (!fs.existsSync(runtimeGeneratedDir)) {
+      fs.mkdirSync(runtimeGeneratedDir, { recursive: true });
+    }
     const args = [
       scriptPath,
       "--project-root",
       projectRoot,
+      "--generated-dir",
+      runtimeGeneratedDir,
       "--dataset-path",
       datasetPath,
       "--target-col",
@@ -116,6 +187,16 @@ function runPythonPipeline({
     });
 
     pythonProcess.on("error", (err) => {
+      sendDebugLog({
+        runId: "initial",
+        hypothesisId: "H3",
+        location: "pipelineService.js:runPythonPipeline:error",
+        message: "Python process spawn error",
+        data: {
+          code: err && err.code ? err.code : null,
+          message: err && err.message ? err.message : "unknown",
+        },
+      });
       if (settled) return;
       settled = true;
       reject(
@@ -167,6 +248,16 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
     pythonProcess.on("error", (err) => {
+      sendDebugLog({
+        runId: "initial",
+        hypothesisId: "H4",
+        location: "pipelineService.js:runPythonPredict:error",
+        message: "Python predict spawn error",
+        data: {
+          code: err && err.code ? err.code : null,
+          message: err && err.message ? err.message : "unknown",
+        },
+      });
       if (settled) return;
       settled = true;
       try {
@@ -205,18 +296,12 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
 function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, "../../python/generate_visualizations_api.py");
-    const payloadPath = path.join(
-      projectRoot,
-      "backend",
-      "generated",
-      `tmp_viz_payload_${runId}.json`
-    );
-    const outputDir = path.join(
-      projectRoot,
-      "backend",
-      "generated",
-      `${runId}-custom-viz-${Date.now()}`
-    );
+    const runtimeGeneratedDir = path.join(process.cwd(), "generated");
+    if (!fs.existsSync(runtimeGeneratedDir)) {
+      fs.mkdirSync(runtimeGeneratedDir, { recursive: true });
+    }
+    const payloadPath = path.join(runtimeGeneratedDir, `tmp_viz_payload_${runId}.json`);
+    const outputDir = path.join(runtimeGeneratedDir, `${runId}-custom-viz-${Date.now()}`);
     fs.writeFileSync(payloadPath, JSON.stringify(payload), "utf-8");
 
     const args = [
@@ -237,6 +322,16 @@ function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
     pythonProcess.on("error", (err) => {
+      sendDebugLog({
+        runId: "initial",
+        hypothesisId: "H5",
+        location: "pipelineService.js:runPythonVisualization:error",
+        message: "Python visualization spawn error",
+        data: {
+          code: err && err.code ? err.code : null,
+          message: err && err.message ? err.message : "unknown",
+        },
+      });
       if (settled) return;
       settled = true;
       try {

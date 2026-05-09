@@ -9,7 +9,7 @@ export const useRunStore = create((set, get) => ({
   runProgress: null,
 
   fetchRuns: async () => {
-    set({ loading: true, error: "" });
+    set({ loading: true, error: "", runProgress: null });
     try {
       const { data } = await api.get("/runs");
       set({ runs: data, loading: false });
@@ -43,8 +43,17 @@ export const useRunStore = create((set, get) => ({
   renameRunProject: async (id, projectName) => {
     const { data } = await api.patch(`/runs/${id}`, { projectName });
     set((state) => ({
-      runs: state.runs.map((run) => (run._id === id ? data : run)),
-      selectedRun: state.selectedRun?._id === id ? data : state.selectedRun,
+      runs: state.runs.map((run) => (String(run._id) === String(id) ? data : run)),
+      selectedRun: state.selectedRun && String(state.selectedRun._id) === String(id) ? data : state.selectedRun,
+    }));
+    return data;
+  },
+
+  patchRun: async (id, body) => {
+    const { data } = await api.patch(`/runs/${id}`, body);
+    set((state) => ({
+      runs: state.runs.map((run) => (String(run._id) === String(id) ? data : run)),
+      selectedRun: state.selectedRun && String(state.selectedRun._id) === String(id) ? data : state.selectedRun,
     }));
     return data;
   },
@@ -52,8 +61,8 @@ export const useRunStore = create((set, get) => ({
   deleteRun: async (id) => {
     await api.delete(`/runs/${id}`);
     set((state) => ({
-      runs: state.runs.filter((run) => run._id !== id),
-      selectedRun: state.selectedRun?._id === id ? null : state.selectedRun,
+      runs: state.runs.filter((run) => String(run._id) !== String(id)),
+      selectedRun: state.selectedRun && String(state.selectedRun._id) === String(id) ? null : state.selectedRun,
     }));
   },
 
@@ -62,11 +71,14 @@ export const useRunStore = create((set, get) => ({
     set({ runs: [], selectedRun: null });
   },
 
-  executeRun: async ({ file, targetCol }) => {
+  executeRun: async ({ file, targetCol, projectName }) => {
     const form = new FormData();
     form.append("dataset", file);
     form.append("targetCol", targetCol);
     form.append("visualizations", "yes");
+    if (projectName != null && String(projectName).trim()) {
+      form.append("projectName", String(projectName).trim());
+    }
 
     set({ loading: true, error: "" });
     try {

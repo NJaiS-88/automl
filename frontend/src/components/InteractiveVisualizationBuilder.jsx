@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import api, { BACKEND_BASE_URL } from "../api";
 import { AnimatePresence, motion } from "framer-motion";
 import { gsap } from "gsap";
-import { FiMic, FiMicOff } from "react-icons/fi";
-import useVoiceNavigator from "../hooks/useVoiceNavigator";
 import SilverLoader from "./SilverLoader";
 import { useRunStore } from "../store";
 
@@ -87,15 +85,6 @@ function InteractiveVisualizationBuilder({ run }) {
   }, [mode, univariateType, xType, yType]);
 
   const normalizedSelectedCharts = selectedCharts.filter((item) => validChartOptions.includes(item));
-
-  const selectChartFromSpeech = (spokenText) => {
-    const normalized = spokenText.toLowerCase();
-    const match = validChartOptions.find((chart) =>
-      normalized.includes(chart.replaceAll("_", " "))
-    );
-    if (!match) return;
-    setSelectedCharts((prev) => (prev.includes(match) ? prev : [...prev, match]));
-  };
 
   const chartLabel = (chartType) => {
     const labels = {
@@ -228,28 +217,6 @@ function InteractiveVisualizationBuilder({ run }) {
     }
   };
 
-  const {
-    transcript,
-    listening,
-    browserSupportsSpeechRecognition,
-    resetTranscript,
-    start,
-    stop,
-  } = useVoiceNavigator([
-    {
-      phrases: ["generate visualization", "generate visualizations"],
-      onMatch: () => generateVisualizations(),
-    },
-    {
-      phrases: ["reset visualization", "reset selection"],
-      onMatch: () => clearSelections(),
-    },
-    {
-      phrases: ["select *", "choose *"],
-      onMatch: (spoken) => selectChartFromSpeech(spoken),
-    },
-  ]);
-
   useEffect(() => {
     if (!containerRef.current) return;
     gsap.fromTo(
@@ -261,32 +228,48 @@ function InteractiveVisualizationBuilder({ run }) {
 
   return (
     <motion.div
-      className="panel"
       ref={containerRef}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
+      style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", position: "relative" }}
     >
+      <style>
+        {`
+          .viz-layout-grid { display:grid; grid-template-columns: 300px 1fr; gap:12px; }
+          .viz-left-sidebar, .viz-right-workarea, .viz-chart-options, .viz-render-grid { border:1px solid #f1f5f9; border-radius:12px; background:#fff; padding:12px; }
+          .viz-columns-scroll { max-height:280px; overflow:auto; display:grid; gap:8px; }
+          .viz-col-chip { border:1px solid #e5e7eb; border-radius:10px; background:#fff; padding:8px 10px; text-align:left; cursor:grab; }
+          .viz-col-type { color:#6b7280; margin-left:6px; font-size:0.82rem; }
+          .viz-mode-row { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+          .active-mode { background:#e5e7eb !important; border-color:#e5e7eb !important; }
+          .viz-drop-shell { border:1px solid #f1f5f9; border-radius:10px; padding:10px; }
+          .viz-drop-grid { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+          .viz-drop-zone { border:1px dashed #cbd5e1; border-radius:10px; min-height:84px; padding:10px; background:#fff; display:grid; gap:8px; align-content:start; }
+          .viz-drop-zone.filled { border-style:solid; border-color:#e5e7eb; }
+          .viz-selected-chip-wrap { display:flex; flex-wrap:wrap; gap:6px; }
+          .viz-selected-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid #e5e7eb; border-radius:999px; padding:4px 8px; background:#fff; font-size:0.82rem; }
+          .viz-chip-remove { border:none; background:transparent; cursor:pointer; color:#6b7280; }
+          .viz-select-row { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+          .viz-select-row .secondary-btn, .viz-select-row .primary-btn, .viz-save-row .secondary-btn, .viz-mode-row .secondary-btn {
+            border: none; border-radius:10px; background:#111111; color:#fff; padding:10px 12px; font-weight:600; cursor:pointer;
+          }
+          .viz-select-row .secondary-btn, .viz-mode-row .secondary-btn { background:#fff; color:#111827; border:1px solid #d1d5db; }
+          .viz-chart-options { margin-bottom:12px; }
+          .viz-options-list { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+          .viz-option-item { display:inline-flex; gap:6px; align-items:center; border:1px solid #e5e7eb; border-radius:999px; padding:5px 9px; }
+          .viz-generated-item { border:1px solid #f1f5f9; border-radius:12px; padding:10px; background:#fff; margin-bottom:10px; }
+          .viz-generated-select { display:inline-flex; gap:6px; align-items:center; margin-bottom:8px; font-size:0.9rem; }
+          .plot-link { display:block; border:1px solid #f1f5f9; border-radius:10px; overflow:hidden; }
+          .plot-image { width:100%; height:auto; display:block; }
+          .viz-helper-text { color:#6b7280; }
+          @media (max-width: 900px) { .viz-layout-grid { grid-template-columns: 1fr; } }
+        `}
+      </style>
       <h2>Interactive Visualization Builder</h2>
       <p className="viz-helper-text">
         Drag/drop only: assign columns to Univariate, X/Y, Hue, or Multivariate columns. Charts are generated in Python (matplotlib/seaborn/pandas).
       </p>
-      {browserSupportsSpeechRecognition && (
-        <div className="voice-row">
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={listening ? stop : start}
-          >
-            {listening ? <FiMicOff /> : <FiMic />} {listening ? "Stop Voice" : "Start Voice"}
-          </button>
-          <button type="button" className="secondary-btn" onClick={resetTranscript}>
-            Clear Voice Text
-          </button>
-          <span className="voice-transcript">Heard: {transcript || "..."}</span>
-        </div>
-      )}
-
       {!columns.length || !rows.length ? (
         <p>No preview data available for interactive plots.</p>
       ) : (

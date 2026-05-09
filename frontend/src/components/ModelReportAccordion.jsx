@@ -1,29 +1,26 @@
-function ModelReportAccordion({ report }) {
+import { resolveDev2BaseModelName, resolveFinalChosenModelLabel } from "../utils/runDisplay";
+
+function ModelReportAccordion({ report, runStatus }) {
   if (!report) return null;
   const dev3 = report.dev3 || {};
   const candidateScores = dev3.candidate_scores || {};
   const candidateEntries = Object.entries(candidateScores);
   const finalMetricName = dev3.metric || "score";
   const selectedVersion = dev3.selected_model_version || "original";
-  const dev2Choice = report.dev2?.choice || {};
-  const dev2SelectedModel =
-    dev2Choice.type === "ensemble"
-      ? `Ensemble (${(dev2Choice.members || []).join(", ")})`
-      : (dev2Choice.members || [])[0] || "Unavailable";
   const finalModelName =
-    selectedVersion === "improved"
-      ? dev3.best_candidate_name || dev2SelectedModel
-      : dev2SelectedModel;
+    resolveFinalChosenModelLabel(report, runStatus) ||
+    resolveDev2BaseModelName(report) ||
+    "—";
 
   return (
-    <div className="panel">
-      <h2>Model Reports</h2>
-      <details className="details-card" open>
-        <summary>All Models Metrics <span>{candidateEntries.length}</span></summary>
-        <div className="details-body">
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px" }}>
+      <h2 style={{ margin: "0 0 12px", color: "#111827" }}>Model Reports</h2>
+      <details style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "10px 12px", marginBottom: "10px" }} open>
+        <summary style={{ cursor: "pointer", fontWeight: 600, color: "#111827" }}>All Models Metrics ({candidateEntries.length})</summary>
+        <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
           {!candidateEntries.length && <p>No model metrics available.</p>}
           {candidateEntries.map(([modelName, scoreObj]) => (
-            <div key={modelName} className="metric-item">
+            <div key={modelName} style={{ border: "1px solid #f1f5f9", borderRadius: "10px", padding: "8px 10px", display: "grid", gap: "4px" }}>
               <span><strong>{modelName}</strong></span>
               <span>train_{finalMetricName}: {typeof scoreObj?.train === "number" ? scoreObj.train.toFixed(4) : "-"}</span>
               <span>test_{finalMetricName}: {typeof scoreObj?.test === "number" ? scoreObj.test.toFixed(4) : "-"}</span>
@@ -32,9 +29,9 @@ function ModelReportAccordion({ report }) {
         </div>
       </details>
 
-      <details className="details-card" open>
-        <summary>Final Chosen Model Metrics <span>{finalModelName}</span></summary>
-        <div className="details-body">
+      <details style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "10px 12px" }} open>
+        <summary style={{ cursor: "pointer", fontWeight: 600, color: "#111827" }}>Final Chosen Model Metrics ({finalModelName})</summary>
+        <div style={{ marginTop: "10px" }}>
           <p><strong>Final Chosen Model:</strong> {finalModelName}</p>
           <p><strong>Selection Version:</strong> {selectedVersion}</p>
           {Object.entries(dev3.final_metrics || {}).map(([k, v]) => (

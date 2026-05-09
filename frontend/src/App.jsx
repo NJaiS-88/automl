@@ -1,34 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FiMic, FiMicOff, FiSettings } from "react-icons/fi";
+import { FiBarChart2, FiCpu, FiGrid, FiHome, FiSettings } from "react-icons/fi";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import "./App.css";
 import { useAuthStore } from "./authStore";
-import useVoiceNavigator from "./hooks/useVoiceNavigator";
 import i18n from "./i18n";
 import { useUiStore } from "./uiStore";
 import HistoryPage from "./pages/HistoryPage";
 import AuthPage from "./pages/AuthPage";
-import LandingPage from "./pages/LandingPage";
+import ProjectsPage from "./pages/ProjectsPage";
+import SettingsPage from "./pages/SettingsPage";
 import RunDetailsPage from "./pages/RunDetailsPage";
 import RunPage from "./pages/RunPage";
+import VoiceAssistantButton from "./components/VoiceAssistantButton";
 
 function App() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, changePassword, deleteAccount } = useAuthStore();
-  const { theme, setTheme, toggleTheme, sidebarWidth, setSidebarWidth, language, setLanguage } =
-    useUiStore();
-  const [showSettings, setShowSettings] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [deletePassword, setDeletePassword] = useState("");
-  const [accountNotice, setAccountNotice] = useState("");
-  const isDatasetPage = /^\/history\/[^/]+$/.test(location.pathname);
-  const datasetBasePath = isDatasetPage ? location.pathname : "";
-  const currentSection = new URLSearchParams(location.search).get("section") || "dashboard";
+  const { user, logout } = useAuthStore();
+  const { theme, language } = useUiStore();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
   const isAuthPath = location.pathname === "/auth";
+  const isProjectDetailsPage = /^\/history\/[^/]+$/.test(location.pathname);
+  const currentProjectSection = new URLSearchParams(location.search).get("section") || "dashboard";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -38,213 +32,391 @@ function App() {
     i18n.changeLanguage(language);
   }, [language]);
 
-  const voiceCommands = useMemo(
-    () => [
-      {
-        phrases: ["open history", "go history"],
-        onMatch: () => navigate("/history"),
-      },
-      {
-        phrases: ["open new run", "go new run", "go dashboard"],
-        onMatch: () => navigate("/app"),
-      },
-      {
-        phrases: ["toggle dark mode", "toggle theme"],
-        onMatch: () => toggleTheme(),
-      },
-      {
-        phrases: ["switch hindi", "language hindi"],
-        onMatch: () => setLanguage("hi"),
-      },
-      {
-        phrases: ["switch english", "language english"],
-        onMatch: () => setLanguage("en"),
-      },
-    ],
-    [navigate, toggleTheme, setLanguage]
-  );
+  useEffect(() => {
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyMargin = document.body.style.margin;
 
-  const {
-    transcript,
-    listening,
-    browserSupportsSpeechRecognition,
-    resetTranscript,
-    start,
-    stop,
-  } = useVoiceNavigator(voiceCommands);
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflowX = "hidden";
+    document.body.style.overflowX = "hidden";
+    document.body.style.margin = "0";
 
-  const onChangePassword = async () => {
-    if (!currentPassword || !newPassword) return;
-    try {
-      await changePassword({ currentPassword, newPassword });
-      setAccountNotice(t("app.passwordChanged"));
-      setCurrentPassword("");
-      setNewPassword("");
-    } catch {
-      setAccountNotice(t("app.passwordChangeFailed"));
-    }
-  };
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.margin = previousBodyMargin;
+    };
+  }, []);
 
-  const onDeleteAccount = async () => {
-    if (!deletePassword) return;
-    try {
-      await deleteAccount({ password: deletePassword });
-    } catch {
-      setAccountNotice(t("app.accountDeleteFailed"));
-    }
-  };
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   if (!user) {
     return (
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<Navigate to="/auth" replace />} />
         <Route path="/auth" element={<AuthPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     );
   }
 
   return (
-    <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` }}>
-      <aside className="sidebar">
-        <div className="brand">{t("app.brand")}</div>
-        <nav>
-          <NavLink to="/app" end className="nav-link">
-            {t("app.newRun")}
-          </NavLink>
-          <NavLink to="/history" className="nav-link">
-            {t("app.history")}
-          </NavLink>
-          {isDatasetPage && (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        height: "100vh",
+        overflow: "hidden",
+        overflowX: "hidden",
+        background: "#ffffff",
+        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      }}
+    >
+      <style>
+        {`
+          :root {
+            --cloud-rgb: 255, 255, 255;
+            --dark-border: #374151;
+          }
+          * {
+            border-color: #9ca3af;
+          }
+          * {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+          }
+          *::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+          }
+          *::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          *::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 999px;
+          }
+          *::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+          }
+          .sidebar-nav-item:hover {
+            background: #f3f4f6;
+          }
+          .sidebar-nav-item:active {
+            background: #e5e7eb;
+          }
+          [data-theme="dark"] body,
+          [data-theme="dark"] #root {
+            background: #000000 !important;
+            color: #f8fafc !important;
+          }
+          [data-theme="dark"] {
+            --cloud-rgb: 0, 0, 0;
+          }
+          [data-theme="dark"] #root,
+          [data-theme="dark"] #root * {
+            background-color: #000000 !important;
+            color: #f8fafc !important;
+          }
+          [data-theme="dark"] a {
+            color: #cbd5e1 !important;
+          }
+          [data-theme="dark"] div[style*="background: #ffffff"],
+          [data-theme="dark"] section[style*="background: #ffffff"],
+          [data-theme="dark"] article[style*="background: #ffffff"],
+          [data-theme="dark"] form[style*="background: #ffffff"] {
+            background: #000000 !important;
+            border-color: var(--dark-border) !important;
+          }
+          [data-theme="dark"] input,
+          [data-theme="dark"] select,
+          [data-theme="dark"] textarea {
+            background: #000000 !important;
+            color: #f8fafc !important;
+            border-color: var(--dark-border) !important;
+          }
+          [data-theme="dark"] input::placeholder,
+          [data-theme="dark"] textarea::placeholder {
+            color: #94a3b8 !important;
+          }
+          [data-theme="dark"] button {
+            border-color: var(--dark-border) !important;
+          }
+          /* white buttons become dark */
+          [data-theme="dark"] button[style*="background: #ffffff"],
+          [data-theme="dark"] button[style*="background:#ffffff"] {
+            background: #000000 !important;
+            color: #f8fafc !important;
+          }
+          /* black buttons become lighter dark gray */
+          [data-theme="dark"] button[style*="background: #111111"],
+          [data-theme="dark"] button[style*="background:#111111"] {
+            background: #374151 !important;
+            color: #f8fafc !important;
+          }
+          [data-theme="dark"] button[style*="background: #1f2937"],
+          [data-theme="dark"] button[style*="background:#1f2937"] {
+            background: #374151 !important;
+            color: #f8fafc !important;
+          }
+          /* blue buttons become dark blue-black */
+          [data-theme="dark"] button[style*="background: #2563eb"],
+          [data-theme="dark"] button[style*="background:#2563eb"] {
+            background: #1e3a8a !important;
+            color: #e2e8f0 !important;
+          }
+          [data-theme="dark"] button[style*="background: transparent"],
+          [data-theme="dark"] button[style*="background:transparent"] {
+            background: #000000 !important;
+          }
+          [data-theme="dark"] pre[style*="background: #ffffff"],
+          [data-theme="dark"] pre[style*="background:#ffffff"] {
+            background: #000000 !important;
+            color: #e2e8f0 !important;
+            border-color: var(--dark-border) !important;
+          }
+          [data-theme="dark"] #root * {
+            border-color: var(--dark-border) !important;
+          }
+          @media (max-width: 900px) {
+            * {
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
+            *::-webkit-scrollbar {
+              display: none;
+            }
+          }
+        `}
+      </style>
+      <aside
+        style={{
+          width: isMobile ? "100%" : "280px",
+          minWidth: isMobile ? "100%" : "240px",
+          maxWidth: isMobile ? "100%" : "420px",
+          background: "#ffffff",
+          borderRight: isMobile ? "none" : "1px solid #e5e7eb",
+          borderBottom: isMobile ? "1px solid #e5e7eb" : "none",
+          padding: isMobile ? "10px 12px" : "20px 14px",
+          display: "flex",
+          flexDirection: isMobile ? "row" : "column",
+          alignItems: isMobile ? "center" : "stretch",
+          overflowY: isMobile ? "hidden" : "auto",
+          overflowX: "hidden",
+          gap: isMobile ? "10px" : "0",
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: "1.05rem", padding: isMobile ? "0 4px" : "4px 8px 18px", whiteSpace: "nowrap" }}>{t("app.brand")}</div>
+        <nav style={{ display: "flex", flexDirection: isMobile ? "row" : "column", gap: "10px", flex: isMobile ? "1" : "unset" }}>
+          {!isProjectDetailsPage && (
+            <NavLink
+              to="/projects"
+              className="sidebar-nav-item"
+              style={({ isActive }) => ({
+                textDecoration: "none",
+                color: "#111827",
+                borderRadius: "12px",
+                padding: isMobile ? "10px 12px" : "14px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                background: isActive ? "#e5e7eb" : "#ffffff",
+                border: isActive ? "1px solid #e5e7eb" : "1px solid transparent",
+                transition: "background-color 0.15s ease",
+              })}
+            >
+              <FiGrid size={18} />
+              {t("app.projects")}
+            </NavLink>
+          )}
+          {isProjectDetailsPage && (
             <>
-              <p className="sidebar-subtitle">{t("app.datasetSections")}</p>
-              <NavLink
-                to={`${datasetBasePath}?section=dashboard`}
-                className={`nav-link ${currentSection === "dashboard" ? "active" : ""}`}
+              <button
+                type="button"
+                className="sidebar-nav-item"
+                onClick={() => navigate(`${location.pathname}?section=dashboard`)}
+                style={{
+                  textDecoration: "none",
+                  color: "#111827",
+                  borderRadius: "12px",
+                  padding: isMobile ? "10px 12px" : "14px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  background: currentProjectSection === "dashboard" ? "#e5e7eb" : "#ffffff",
+                  border: currentProjectSection === "dashboard" ? "1px solid #e5e7eb" : "1px solid transparent",
+                  transition: "background-color 0.15s ease",
+                  cursor: "pointer",
+                }}
               >
-                {t("app.dashboard")}
-              </NavLink>
-              <NavLink
-                to={`${datasetBasePath}?section=visualizations`}
-                className={`nav-link ${currentSection === "visualizations" ? "active" : ""}`}
+                <FiHome size={18} />
+                Dashboard
+              </button>
+              <button
+                type="button"
+                className="sidebar-nav-item"
+                onClick={() => navigate(`${location.pathname}?section=visualizations`)}
+                style={{
+                  textDecoration: "none",
+                  color: "#111827",
+                  borderRadius: "12px",
+                  padding: isMobile ? "10px 12px" : "14px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  background: currentProjectSection === "visualizations" ? "#e5e7eb" : "#ffffff",
+                  border: currentProjectSection === "visualizations" ? "1px solid #e5e7eb" : "1px solid transparent",
+                  transition: "background-color 0.15s ease",
+                  cursor: "pointer",
+                }}
               >
-                {t("app.visualizations")}
-              </NavLink>
-              <NavLink
-                to={`${datasetBasePath}?section=predict`}
-                className={`nav-link ${currentSection === "predict" ? "active" : ""}`}
+                <FiBarChart2 size={18} />
+                Visualizations
+              </button>
+              <button
+                type="button"
+                className="sidebar-nav-item"
+                onClick={() => navigate(`${location.pathname}?section=predict`)}
+                style={{
+                  textDecoration: "none",
+                  color: "#111827",
+                  borderRadius: "12px",
+                  padding: isMobile ? "10px 12px" : "14px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  background: currentProjectSection === "predict" ? "#e5e7eb" : "#ffffff",
+                  border: currentProjectSection === "predict" ? "1px solid #e5e7eb" : "1px solid transparent",
+                  transition: "background-color 0.15s ease",
+                  cursor: "pointer",
+                }}
               >
-                {t("app.predict")}
-              </NavLink>
-              <NavLink to="/app" className="nav-link">{t("app.backToMain")}</NavLink>
+                <FiCpu size={18} />
+                Predict
+              </button>
             </>
           )}
-        </nav>
-        <div className="sidebar-controls">
-          <button type="button" className="secondary-btn" onClick={() => setShowSettings((v) => !v)}>
-            <FiSettings /> {t("app.openSettings")}
-          </button>
-          {browserSupportsSpeechRecognition && (
-            <div className="voice-row">
-              <button type="button" className="secondary-btn" onClick={listening ? stop : start}>
-                {listening ? <FiMicOff /> : <FiMic />} {listening ? t("app.voiceStop") : t("app.voiceStart")}
-              </button>
-              <button type="button" className="secondary-btn" onClick={resetTranscript}>
-                {t("app.clear")}
-              </button>
-              <span className="voice-transcript">{t("app.voiceHeard")}: {transcript || "..."}</span>
-            </div>
+          {isProjectDetailsPage ? (
+            <button
+              type="button"
+              className="sidebar-nav-item"
+              onClick={() => navigate(`${location.pathname}?section=settings`)}
+              style={{
+                textDecoration: "none",
+                color: "#111827",
+                borderRadius: "12px",
+                padding: isMobile ? "10px 12px" : "14px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                background: currentProjectSection === "settings" ? "#e5e7eb" : "#ffffff",
+                border: currentProjectSection === "settings" ? "1px solid #e5e7eb" : "1px solid transparent",
+                transition: "background-color 0.15s ease",
+                cursor: "pointer",
+              }}
+            >
+              <FiSettings size={18} />
+              {t("app.openSettings")}
+            </button>
+          ) : (
+            <NavLink
+              to="/settings"
+              className="sidebar-nav-item"
+              style={({ isActive }) => ({
+                textDecoration: "none",
+                color: "#111827",
+                borderRadius: "12px",
+                padding: isMobile ? "10px 12px" : "14px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                background: isActive ? "#e5e7eb" : "#ffffff",
+                border: isActive ? "1px solid #e5e7eb" : "1px solid transparent",
+                transition: "background-color 0.15s ease",
+              })}
+            >
+              <FiSettings size={18} />
+              {t("app.openSettings")}
+            </NavLink>
           )}
-        </div>
-        <div className="sidebar-user">
-          <p>{user.name}</p>
-          <small>{user.email}</small>
-          <button className="secondary-btn logout-btn" onClick={logout}>
-            {t("app.logout")}
-          </button>
+        </nav>
+        <div style={{ marginTop: isMobile ? 0 : "auto", marginLeft: isMobile ? "auto" : 0, display: "flex", flexDirection: isMobile ? "row" : "column", gap: "10px", paddingTop: isMobile ? 0 : "16px", alignItems: isMobile ? "center" : "stretch" }}>
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "10px 12px", display: isMobile ? "none" : "block", marginLeft: isMobile ? 0 : "4px", marginRight: isMobile ? 0 : "4px" }}>
+            <p style={{ margin: 0, fontWeight: 600, color: "#111827" }}>{user.name}</p>
+            <div style={{ position: "relative", margin: "4px 0 10px" }}>
+              <p
+                style={{
+                  margin: 0,
+                  color: "#6b7280",
+                  fontSize: "0.9rem",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  paddingRight: "24px",
+                }}
+              >
+                {user.email}
+              </p>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: "28px",
+                  background: "linear-gradient(to right, rgba(var(--cloud-rgb),0), rgba(var(--cloud-rgb),0.9))",
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+            <button
+              onClick={logout}
+              style={{
+                border: "1px solid #d1d5db",
+                background: "#ffffff",
+                borderRadius: "10px",
+                padding: "8px 10px",
+                cursor: "pointer",
+                fontWeight: 600,
+                color: "#111827",
+              }}
+            >
+              {t("app.logout")}
+            </button>
+          </div>
         </div>
       </aside>
-      <main className="content">
-        {showSettings && (
-          <section className="line-panel settings-panel">
-            <h3>{t("app.openSettings")}</h3>
-            <div className="settings-grid">
-              <label>
-                {t("app.theme")}
-                <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <label>
-                {t("app.language")}
-                <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  <option value="en">English</option>
-                  <option value="hi">Hindi</option>
-                </select>
-              </label>
-              <label>
-                {t("app.sidebarWidth")}: {sidebarWidth}px
-                <input
-                  type="range"
-                  min="220"
-                  max="420"
-                  value={sidebarWidth}
-                  onChange={(e) => setSidebarWidth(Number(e.target.value))}
-                />
-              </label>
-            </div>
-            <div className="settings-grid">
-              <label>
-                {t("app.changePasswordCurrent")}
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                />
-              </label>
-              <label>
-                {t("app.changePasswordNew")}
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-              </label>
-              <button type="button" className="secondary-btn" onClick={onChangePassword}>
-                {t("app.changePassword")}
-              </button>
-            </div>
-            <div className="settings-grid">
-              <label>
-                {t("app.deleteAccountPassword")}
-                <input
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                />
-              </label>
-              <button type="button" className="secondary-btn" onClick={onDeleteAccount}>
-                {t("app.deleteAccount")}
-              </button>
-            </div>
-            {accountNotice && <p className="viz-helper-text">{accountNotice}</p>}
-          </section>
-        )}
-        <header className="topbar">
-          <h1>{t("app.title")}</h1>
-          <p>{t("app.subtitle")}</p>
-        </header>
+      <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "12px" : "20px 24px 26px", minHeight: 0 }}>
         <Routes>
-          <Route path="/" element={<Navigate to={isAuthPath ? "/auth" : "/app"} replace />} />
-          <Route path="/auth" element={<Navigate to="/app" replace />} />
+          <Route path="/" element={<Navigate to={isAuthPath ? "/auth" : "/projects"} replace />} />
+          <Route path="/auth" element={<Navigate to="/projects" replace />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/app" element={<RunPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/history/:id" element={<RunDetailsPage />} />
-          <Route path="/landing" element={<LandingPage />} />
-          <Route path="*" element={<Navigate to="/app" replace />} />
+          <Route path="*" element={<Navigate to="/projects" replace />} />
         </Routes>
       </main>
+      <VoiceAssistantButton />
     </div>
   );
 }

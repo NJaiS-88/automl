@@ -49,7 +49,6 @@ CLASSIFIER_MODELS = {
     "RandomForest": lambda: RandomForestClassifier(),
     "GradientBoost": lambda: GradientBoostingClassifier(),
     "NaiveBayes": lambda: GaussianNB(),
-    "BalancedRF": lambda: RandomForestClassifier(class_weight="balanced"),
 }
 
 REGRESSOR_MODELS = {

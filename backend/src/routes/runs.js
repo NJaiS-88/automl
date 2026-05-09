@@ -31,7 +31,12 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 function toGeneratedUrl(absPath) {
-  const rel = path.relative(generatedDir, absPath).replace(/\\/g, "/");
+  const resolved = path.resolve(absPath);
+  const relRaw = path.relative(generatedDir, resolved);
+  if (!relRaw || relRaw.startsWith("..") || path.isAbsolute(relRaw)) {
+    return null;
+  }
+  const rel = relRaw.replace(/\\/g, "/");
   return `/generated/${rel}`;
 }
 
@@ -51,7 +56,45 @@ function safeUnlink(filePath) {
   }
 }
 
+function cleanupGeneratedArtifactsForRun(runId) {
+  const id = runId ? String(runId) : "";
+  if (!id || id.length < 8) return;
+  try {
+    if (!fs.existsSync(generatedDir)) return;
+
+    safeUnlink(path.join(generatedDir, `tmp_viz_payload_${id}.json`));
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(generatedDir, { withFileTypes: true });
+    } catch (_e) {
+      return;
+    }
+
+    const idPrefixRe = /^[a-f0-9]{24}$/i;
+    const isLikelyOid = idPrefixRe.test(id);
+
+    for (const dirent of entries) {
+      const name = dirent.name;
+      if (name !== id && !name.startsWith(`${id}-`)) continue;
+
+      /* Avoid deleting unrelated files if id were ever short / non-ObjectId-shaped */
+      if (isLikelyOid || name.startsWith(`${id}-`)) {
+        const full = path.join(generatedDir, name);
+        try {
+          fs.rmSync(full, { recursive: true, force: true });
+        } catch (_e) {
+          // ignore
+        }
+      }
+    }
+  } catch (_e) {
+    // ignore cleanup errors
+  }
+}
+
 function cleanupRunArtifacts(run) {
+  cleanupGeneratedArtifactsForRun(run._id);
   safeUnlink(run.datasetPath);
   safeUnlink(run.reportPath);
   safeUnlink(run.modelPath);
@@ -85,13 +128,26 @@ router.get("/:id", async (req, res, next) => {
 
 router.patch("/:id", async (req, res, next) => {
   try {
-    const { projectName } = req.body || {};
-    if (!projectName || !String(projectName).trim()) {
-      return res.status(400).json({ message: "projectName is required" });
-    }
+    const { projectName, showInProjects } = req.body || {};
     const run = await RunHistory.findOne({ _id: req.params.id, userId: req.user.id });
     if (!run) return res.status(404).json({ message: "Run not found" });
-    run.projectName = String(projectName).trim();
+
+    let updated = false;
+    if (projectName !== undefined) {
+      if (!String(projectName).trim()) {
+        return res.status(400).json({ message: "projectName cannot be empty" });
+      }
+      run.projectName = String(projectName).trim();
+      updated = true;
+    }
+    if (showInProjects !== undefined) {
+      run.showInProjects = Boolean(showInProjects);
+      updated = true;
+    }
+    if (!updated) {
+      return res.status(400).json({ message: "Provide projectName and/or showInProjects" });
+    }
+
     await run.save();
     res.json(run);
   } catch (err) {
@@ -120,25 +176,29 @@ router.get("/:id/progress", async (req, res, next) => {
 router.post("/execute", upload.single("dataset"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ message: "Dataset file is required" });
-    const { targetCol, visualizations = "no" } = req.body;
+    const { targetCol, visualizations = "no", projectName: bodyProjectName } = req.body;
     if (!targetCol) return res.status(400).json({ message: "targetCol is required" });
 
-    const { columns, previewRows } = readCsvPreview(req.file.path);
+    const trimmedPn =
+      typeof bodyProjectName === "string" && bodyProjectName.trim() ? bodyProjectName.trim() : "";
+    const initialProjectName = trimmedPn || req.file.originalname;
+
     const run = await RunHistory.create({
       userId: req.user.id,
       name: req.file.originalname,
-      projectName: req.file.originalname,
+      projectName: initialProjectName,
       datasetFilename: req.file.originalname,
+      showInProjects: false,
       datasetPath: req.file.path,
       targetCol,
       visualizations: visualizations === "yes" ? "yes" : "no",
       status: "running",
       currentStage: "analyzing",
-      progressPct: 10,
-      stageMessage: "Analyzing your dataset...",
+      progressPct: 5,
+      stageMessage: "Dataset uploaded. Starting analysis...",
       progressUpdatedAt: new Date(),
-      previewRows,
-      featureColumns: columns,
+      previewRows: [],
+      featureColumns: [],
     });
 
     const runKey = `${run._id}-${randomUUID()}`;
@@ -149,6 +209,16 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
 
     (async () => {
       try {
+        const { columns, previewRows } = await readCsvPreview(req.file.path);
+        run.previewRows = previewRows;
+        run.featureColumns = columns;
+        run.currentStage = "analyzing";
+        run.progressPct = 10;
+        run.stageMessage = "Analyzing your dataset...";
+        run.progressUpdatedAt = new Date();
+        await run.save();
+
+        let lastProgressPersistedAt = 0;
         const result = await runPythonPipeline({
           projectRoot,
           datasetPath: req.file.path,
@@ -156,12 +226,25 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
           runId: runKey,
           visualizations: run.visualizations,
           onProgress: async (progress) => {
+            const now = Date.now();
+            const hasStageShift =
+              typeof progress.currentStage === "string" &&
+              progress.currentStage &&
+              progress.currentStage !== run.currentStage;
+            const hasBigPctShift =
+              typeof progress.progressPct === "number" &&
+              Math.abs(progress.progressPct - (run.progressPct || 0)) >= 5;
+            const shouldPersistNow =
+              hasStageShift || hasBigPctShift || now - lastProgressPersistedAt >= 550;
+            if (!shouldPersistNow) return;
+
             run.currentStage = progress.currentStage || run.currentStage;
             run.progressPct =
               typeof progress.progressPct === "number" ? progress.progressPct : run.progressPct;
             run.stageMessage = progress.stageMessage || run.stageMessage;
             run.progressUpdatedAt = new Date();
             await run.save();
+            lastProgressPersistedAt = now;
           },
         });
 
@@ -175,8 +258,8 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
         run.modelPath = result.model_path;
         run.pythonScriptPath = result.python_script_path;
         run.plotPaths = keepLastN(result.plot_paths || []);
-        run.plotUrls = keepLastN((result.plot_paths || []).map(toGeneratedUrl));
-        run.featureColumns = result.feature_columns || columns;
+        run.plotUrls = keepLastN((result.plot_paths || []).map(toGeneratedUrl).filter(Boolean));
+        run.featureColumns = result.feature_columns || run.featureColumns || [];
         run.metricsSummary = result.report?.dev3?.final_metrics || null;
         run.logs = result.logs || "";
         await run.save();
@@ -271,7 +354,7 @@ router.post("/:id/visualize", async (req, res, next) => {
         multivariateCols,
       },
     });
-    const plotUrls = (result.plot_paths || []).map(toGeneratedUrl);
+    const plotUrls = (result.plot_paths || []).map(toGeneratedUrl).filter(Boolean);
     res.json({ plotUrls, errors: result.errors || [] });
   } catch (err) {
     next(err);

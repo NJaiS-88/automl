@@ -1,23 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { FiArrowLeft, FiDownload } from "react-icons/fi";
 import api from "../api";
+import { useFrontendDialogs } from "../components/FrontendDialogs";
 import MetricsCard from "../components/MetricsCard";
 import ModelReportAccordion from "../components/ModelReportAccordion";
 import PlotGallery from "../components/PlotGallery";
 import PredictionSection from "../components/PredictionSection";
 import InteractiveVisualizationBuilder from "../components/InteractiveVisualizationBuilder";
 import VisualizationPanel from "../components/VisualizationPanel";
-import SilverLoader from "../components/SilverLoader";
 import { useRunStore } from "../store";
+import SettingsPage from "./SettingsPage";
+import { resolveFinalChosenModelLabel } from "../utils/runDisplay";
 
 function RunDetailsPage() {
+  const { t } = useTranslation();
+  const { alert: dlgAlert } = useFrontendDialogs();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const activeSection = searchParams.get("section") || "dashboard";
-  const { selectedRun, fetchRunById, loading, error } = useRunStore();
+  const { selectedRun, fetchRunById, loading, error, patchRun } = useRunStore();
   const [streamlitUrl, setStreamlitUrl] = useState(null);
   const [streamlitDeps, setStreamlitDeps] = useState(null);
+  const jsonScrollRef = useRef(null);
+  const [showJsonTopFade, setShowJsonTopFade] = useState(false);
+  const [showJsonBottomFade, setShowJsonBottomFade] = useState(false);
+  const [showJsonRightFade, setShowJsonRightFade] = useState(false);
 
   useEffect(() => {
     fetchRunById(id);
@@ -50,18 +60,104 @@ function RunDetailsPage() {
     };
   }, [loading, activeSection]);
 
-  const report = selectedRun?.report;
-  const dev2Choice = report?.dev2?.choice || {};
-  const dev2SelectedModel =
-    dev2Choice.type === "ensemble"
-      ? `Ensemble (${(dev2Choice.members || []).join(", ")})`
-      : (dev2Choice.members || [])[0] || "Unavailable";
-  const finalChosenModel =
-    report?.dev3?.selected_model_version === "improved"
-      ? report?.dev3?.best_candidate_name || dev2SelectedModel
-      : dev2SelectedModel;
+  useEffect(() => {
+    const updateJsonFades = () => {
+      const el = jsonScrollRef.current;
+      if (!el) return;
+      setShowJsonTopFade(el.scrollTop > 2);
+      setShowJsonBottomFade(el.scrollTop + el.clientHeight < el.scrollHeight - 2);
+      setShowJsonRightFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    };
+    updateJsonFades();
+    window.addEventListener("resize", updateJsonFades);
+    return () => window.removeEventListener("resize", updateJsonFades);
+  }, [selectedRun?.report, activeSection]);
 
-  if (loading) return <SilverLoader text="Loading run insights..." />;
+  const report = selectedRun?.report;
+  const finalChosenModel = resolveFinalChosenModelLabel(report, selectedRun?.status);
+
+  const renderSectionSkeleton = () => {
+    if (activeSection === "predict") {
+      return (
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", display: "grid", gap: "12px" }}>
+          <div className="run-skeleton-line" style={{ height: "24px", width: "34%" }} />
+          <div className="run-skeleton-line" style={{ height: "14px", width: "58%" }} />
+          <div className="run-skeleton-line" style={{ height: "120px", width: "100%" }} />
+          <div className="run-skeleton-line" style={{ height: "44px", width: "170px" }} />
+        </div>
+      );
+    }
+    if (activeSection === "visualizations") {
+      return (
+        <div style={{ display: "grid", gap: "12px" }}>
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", display: "grid", gap: "10px" }}>
+            <div className="run-skeleton-line" style={{ height: "24px", width: "40%" }} />
+            <div className="run-skeleton-line" style={{ height: "280px", width: "100%" }} />
+          </div>
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", display: "grid", gap: "10px" }}>
+            <div className="run-skeleton-line" style={{ height: "24px", width: "46%" }} />
+            <div className="run-skeleton-line" style={{ height: "160px", width: "100%" }} />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: "grid", gap: "12px" }}>
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", display: "grid", gap: "10px" }}>
+          <div className="run-skeleton-line" style={{ height: "26px", width: "46%" }} />
+          <div className="run-skeleton-line" style={{ height: "14px", width: "30%" }} />
+          <div className="run-skeleton-line" style={{ height: "14px", width: "26%" }} />
+          <div className="run-skeleton-line" style={{ height: "44px", width: "100%" }} />
+        </div>
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px", display: "grid", gap: "10px" }}>
+          <div className="run-skeleton-line" style={{ height: "24px", width: "32%" }} />
+          <div className="run-skeleton-line" style={{ height: "96px", width: "100%" }} />
+        </div>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "4px 2px 10px" }}>
+        <style>
+          {`
+            @keyframes run-skeleton-shimmer {
+              0% { background-position: -220px 0; }
+              100% { background-position: calc(220px + 100%) 0; }
+            }
+            .run-skeleton-line {
+              border-radius: 10px;
+              background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
+              background-size: 420px 100%;
+              animation: run-skeleton-shimmer 1.2s ease-in-out infinite;
+            }
+          `}
+        </style>
+        <button
+          type="button"
+          onClick={() => navigate("/projects")}
+          style={{
+            border: "none",
+            background: "#ffffff",
+            color: "#111827",
+            borderRadius: "10px",
+            padding: "8px 10px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            fontWeight: 600,
+            cursor: "pointer",
+            width: "fit-content",
+          }}
+        >
+          <FiArrowLeft />
+          Back to all projects
+        </button>
+        {renderSectionSkeleton()}
+      </div>
+    );
+  }
   if (error) return <p className="error-text">{error}</p>;
   if (!selectedRun) return <p>Run not found.</p>;
 
@@ -89,13 +185,13 @@ function RunDetailsPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err.response?.data?.message || "Download failed.");
+      void dlgAlert(err.response?.data?.message || "Download failed.");
     }
   };
 
   const runStreamlitApp = async () => {
     if (selectedRun.status !== "completed") {
-      alert("This run is not completed yet. Wait for training to finish.");
+      void dlgAlert(t("runDetails.streamlitWait"));
       return;
     }
     setStreamlitUrl(null);
@@ -110,12 +206,12 @@ function RunDetailsPage() {
         /* ignore */
       }
       if (!url) {
-        alert(data?.message || "Streamlit start returned no URL.");
+        void dlgAlert(data?.message || "Streamlit start returned no URL.");
       }
     } catch (err) {
       const d = err.response?.data;
       const parts = [d?.message, d?.installCommand && `Install command:\n${d.installCommand}`].filter(Boolean);
-      alert(parts.join("\n\n") || "Could not start Streamlit.");
+      void dlgAlert(parts.join("\n\n") || "Could not start Streamlit.");
     }
   };
 
@@ -123,9 +219,9 @@ function RunDetailsPage() {
     if (!streamlitUrl) return;
     try {
       await navigator.clipboard.writeText(streamlitUrl);
-      alert("URL copied. Paste it into Chrome or Edge.");
+      void dlgAlert(t("runDetails.copyUrlSuccess"));
     } catch {
-      alert(`Copy manually: ${streamlitUrl}`);
+      void dlgAlert(t("runDetails.copyUrlManual", { url: streamlitUrl }));
     }
   };
 
@@ -141,24 +237,20 @@ function RunDetailsPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch {
-      alert("Unable to download report JSON.");
+      void dlgAlert(t("runDetails.reportJsonFail"));
     }
   };
 
   const runActionButtons = (
-    <div className="run-dashboard-actions" role="group" aria-label="Downloads and Streamlit">
-      <button type="button" className="secondary-btn" onClick={downloadReportJson}>
-        Download JSON
-      </button>
-      <button type="button" className="secondary-btn" onClick={() => downloadTrainingBlob("py")}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }} role="group" aria-label="Downloads and Streamlit">
+      <button type="button" onClick={() => downloadTrainingBlob("py")} style={{ border: "none", background: "#111111", color: "#ffffff", borderRadius: "10px", padding: "9px 12px", fontWeight: 600, cursor: "pointer" }}>
         Download .py
       </button>
-      <button type="button" className="secondary-btn" onClick={() => downloadTrainingBlob("ipynb")}>
+      <button type="button" onClick={() => downloadTrainingBlob("ipynb")} style={{ border: "none", background: "#111111", color: "#ffffff", borderRadius: "10px", padding: "9px 12px", fontWeight: 600, cursor: "pointer" }}>
         Download .ipynb
       </button>
       <button
         type="button"
-        className="secondary-btn"
         onClick={runStreamlitApp}
         disabled={selectedRun.status !== "completed"}
         title={
@@ -166,6 +258,7 @@ function RunDetailsPage() {
             ? "Finish training for this run before opening Streamlit."
             : "Opens prediction UI using this run’s saved model."
         }
+        style={{ border: "none", background: "#2563eb", color: "#ffffff", borderRadius: "10px", padding: "9px 12px", fontWeight: 600, cursor: selectedRun.status !== "completed" ? "not-allowed" : "pointer", opacity: selectedRun.status !== "completed" ? 0.5 : 1 }}
       >
         Run Streamlit app
       </button>
@@ -173,13 +266,70 @@ function RunDetailsPage() {
   );
 
   return (
-    <div className="run-details-content">
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "4px 2px 10px" }}>
+      <button
+        type="button"
+        onClick={() => navigate("/projects")}
+        style={{
+          border: "none",
+          background: "#ffffff",
+          color: "#111827",
+          borderRadius: "10px",
+          padding: "8px 10px",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          fontWeight: 600,
+          cursor: "pointer",
+          width: "fit-content",
+        }}
+      >
+        <FiArrowLeft />
+        Back to all projects
+      </button>
       {activeSection === "dashboard" && (
         <>
-          <section className="panel run-dashboard-hero">
-            <div className="run-dashboard-toolbar">
-              <div className="run-dashboard-toolbar-text">
-                <h2 className="run-dashboard-title">{selectedRun.datasetFilename}</h2>
+          {selectedRun.showInProjects === false ? (
+            <div
+              role="status"
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: "14px",
+                background: "#f9fafb",
+                padding: "14px 16px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <p style={{ margin: 0, color: "#374151", fontSize: "0.96rem", lineHeight: 1.45, flex: "1 1 220px" }}>
+                {t("projects.notOnProjectsListBanner")}
+              </p>
+              <button
+                type="button"
+                onClick={() => patchRun(selectedRun._id, { showInProjects: true })}
+                style={{
+                  flexShrink: 0,
+                  border: "none",
+                  background: "#111111",
+                  color: "#ffffff",
+                  borderRadius: "12px",
+                  padding: "10px 16px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.95rem",
+                }}
+              >
+                {t("projects.addToProjectsButton")}
+              </button>
+            </div>
+          ) : null}
+          <section style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <h2 style={{ margin: "0 0 6px", color: "#111827" }}>{selectedRun.datasetFilename}</h2>
                 <p>Target: {selectedRun.targetCol}</p>
                 <p>
                   Status: <strong>{selectedRun.status}</strong>
@@ -191,30 +341,123 @@ function RunDetailsPage() {
               {runActionButtons}
             </div>
             {streamlitDeps && streamlitDeps.ok === false ? (
-              <div className="run-dashboard-streamlit-alert" role="alert">
+              <div style={{ marginTop: "10px", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "10px 12px" }} role="alert">
                 <strong>Python / Streamlit not ready.</strong> {streamlitDeps.message || ""}
                 {streamlitDeps.installCommand ? (
-                  <pre className="run-dashboard-streamlit-pre">{streamlitDeps.installCommand}</pre>
+                  <pre style={{ marginTop: "8px", padding: "8px", borderRadius: "8px", background: "#f8fafc", overflowX: "auto" }}>{streamlitDeps.installCommand}</pre>
                 ) : null}
               </div>
             ) : null}
             {streamlitUrl ? (
-              <div className="run-dashboard-streamlit-running">
-                <span className="run-dashboard-streamlit-label">Streamlit:</span>{" "}
+              <div style={{ marginTop: "10px", display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                <span style={{ fontWeight: 600 }}>Streamlit:</span>{" "}
                 <a href={streamlitUrl} target="_blank" rel="noopener noreferrer">
                   {streamlitUrl}
                 </a>
-                <button type="button" className="secondary-btn run-dashboard-copy-url" onClick={copyStreamlitUrl}>
+                <button type="button" onClick={copyStreamlitUrl} style={{ border: "none", background: "#111111", color: "#ffffff", borderRadius: "10px", padding: "7px 10px", fontWeight: 600, cursor: "pointer" }}>
                   Copy URL
                 </button>
               </div>
             ) : null}
           </section>
           <MetricsCard title="Final Metrics" metrics={report?.dev3?.final_metrics} />
-          <ModelReportAccordion report={report} />
-          <div className="panel">
-            <h2>Raw Report JSON</h2>
-            <pre className="code-block">{JSON.stringify(report || {}, null, 2)}</pre>
+          <ModelReportAccordion report={report} runStatus={selectedRun?.status} />
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "14px", background: "#ffffff", padding: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+              <h2 style={{ margin: 0, color: "#111827" }}>Raw Report JSON</h2>
+              <button
+                type="button"
+                onClick={downloadReportJson}
+                aria-label="Download report JSON"
+                title="Download JSON"
+                style={{
+                  border: "none",
+                  background: "#111111",
+                  color: "#ffffff",
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "10px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <FiDownload size={16} />
+              </button>
+            </div>
+            <div style={{ position: "relative" }}>
+              <pre
+                ref={jsonScrollRef}
+                onScroll={() => {
+                  const el = jsonScrollRef.current;
+                  if (!el) return;
+                  setShowJsonTopFade(el.scrollTop > 2);
+                  setShowJsonBottomFade(el.scrollTop + el.clientHeight < el.scrollHeight - 2);
+                  setShowJsonRightFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+                }}
+                style={{
+                  margin: 0,
+                  border: "1px solid #111827",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  background: "linear-gradient(180deg, #020617 0%, #0b1220 100%)",
+                  color: "#e5e7eb",
+                  height: "260px",
+                  overflow: "auto",
+                }}
+              >
+                {JSON.stringify(report || {}, null, 2)}
+              </pre>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  pointerEvents: "none",
+                  left: "1px",
+                  right: "1px",
+                  top: "1px",
+                  height: "24px",
+                  borderTopLeftRadius: "10px",
+                  borderTopRightRadius: "10px",
+                  background: "linear-gradient(to bottom, rgba(var(--cloud-rgb),0.75), rgba(var(--cloud-rgb),0))",
+                  opacity: showJsonTopFade ? 1 : 0,
+                  transition: "opacity 140ms ease",
+                }}
+              />
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  pointerEvents: "none",
+                  left: "1px",
+                  right: "1px",
+                  bottom: "1px",
+                  height: "24px",
+                  borderBottomLeftRadius: "10px",
+                  borderBottomRightRadius: "10px",
+                  background: "linear-gradient(to top, rgba(var(--cloud-rgb),0.75), rgba(var(--cloud-rgb),0))",
+                  opacity: showJsonBottomFade ? 1 : 0,
+                  transition: "opacity 140ms ease",
+                }}
+              />
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  pointerEvents: "none",
+                  right: "1px",
+                  top: "1px",
+                  bottom: "1px",
+                  width: "24px",
+                  borderTopRightRadius: "10px",
+                  borderBottomRightRadius: "10px",
+                  background: "linear-gradient(to left, rgba(var(--cloud-rgb),0.75), rgba(var(--cloud-rgb),0))",
+                  opacity: showJsonRightFade ? 1 : 0,
+                  transition: "opacity 140ms ease",
+                }}
+              />
+            </div>
           </div>
         </>
       )}
@@ -228,6 +471,8 @@ function RunDetailsPage() {
           <PlotGallery plotUrls={selectedRun.plotUrls || []} />
         </>
       )}
+
+      {activeSection === "settings" && <SettingsPage />}
     </div>
   );
 }

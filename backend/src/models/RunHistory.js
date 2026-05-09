@@ -29,6 +29,7 @@ const runHistorySchema = new mongoose.Schema(
     progressUpdatedAt: { type: Date, default: null },
     logs: { type: String, default: "" },
     error: { type: String, default: null },
+    showInProjects: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

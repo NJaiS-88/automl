@@ -21,20 +21,25 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 
 from dev2_automl_doctor import (
+    LEAKAGE_GUARD_NOTE,
     build_ensemble,
-    build_preprocessor,
+    build_smart_preprocessor,
     detect_problem_type,
     evaluate,
     final_training,
     get_feature_selector,
     infer_column_types,
     load_csv,
+    sanitize_leakage_features,
     smart_model_selector,
     split_features_target,
     train_models_core,
 )
 from dev3_auto_optimization import optimize_model
 from dev0 import run_eda
+from scalable_preprocessing import prepare_frame_memory
+from scalable_strategy import infer_scaling_strategy
+from scalable_table import apply_frequency_encoding, compress_wide_features
 
 
 def _convert_numpy(value: Any) -> Any:
@@ -172,7 +177,8 @@ def _plot_overfitting_check(final_metrics: Dict[str, Any], problem_type: str) ->
 
 
 def _plot_feature_importance(model, X_test, y_test, problem_type: str) -> None:
-    scoring = "accuracy" if problem_type == "classification" else "r2"
+    # f1_weighted avoids all mass on majority-class accuracy; use raw column names (no pandas Index name "None").
+    scoring = "f1_weighted" if problem_type == "classification" else "r2"
     try:
         perm = permutation_importance(
             model, X_test, y_test, n_repeats=5, random_state=42, scoring=scoring
@@ -181,8 +187,10 @@ def _plot_feature_importance(model, X_test, y_test, problem_type: str) -> None:
             ascending=False
         )
         top = importances.head(12).sort_values(ascending=True)
+        labels = [str(name) if name is not None else "?" for name in top.index]
         plt.figure(figsize=(8, 5))
-        sns.barplot(x=top.values, y=top.index, orient="h")
+        ax = sns.barplot(x=top.values, y=labels, orient="h")
+        ax.set_ylabel("")
         plt.title("Permutation Feature Importance (Top Features)")
         plt.xlabel("Importance")
         plt.tight_layout()
@@ -349,18 +357,39 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
     # Some sklearn imputers can fail on read-only views from pandas internals.
     X = X.copy(deep=True)
     y = y.copy(deep=True)
+    X, leakage_dropped = sanitize_leakage_features(X, y)
+    dev1_report = {
+        **dev1_report,
+        "leakage_guard": {
+            "dropped_columns": leakage_dropped,
+            "note": LEAKAGE_GUARD_NOTE,
+        },
+    }
+    if leakage_dropped:
+        print(f"Leakage guard dropped {len(leakage_dropped)} column(s): {leakage_dropped}")
     print(f"Rows after cleaning: {dev1_report['rows_after_cleaning']}")
 
     print("\nSTAGE 2/3 - DEV2 AUTO ML DOCTOR")
     problem_type = detect_problem_type(y)
     num_cols, cat_cols = infer_column_types(X)
-    # Use IterativeImputer only on smaller datasets to avoid heavy runtime.
-    preprocessor = build_preprocessor(num_cols, cat_cols, use_iterative=(X.shape[0] < 2000))
-    selector = get_feature_selector(problem_type, X)
-    cv_scores = train_models_core(X, y, preprocessor, selector, problem_type)
+    scaling_strategy = infer_scaling_strategy(len(X), len(num_cols), len(cat_cols))
+
+    shape_notes: Dict[str, Any] = {}
+    if getattr(scaling_strategy, "use_frequency_encoding", False) and cat_cols:
+        X, num_cols, cat_cols, enc_names = apply_frequency_encoding(X, cat_cols)
+        shape_notes["frequency_encoded_columns"] = enc_names
+    X, num_cols, cat_cols, wide_report = compress_wide_features(X, y, num_cols, cat_cols, scaling_strategy)
+    shape_notes["wide_compression"] = wide_report
+    dev1_report = {**dev1_report, "shape_transforms": shape_notes, "scaling_strategy": scaling_strategy.to_report_dict()}
+
+    X = prepare_frame_memory(X, scaling_strategy)
+
+    preprocessor = build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy)
+    selector = get_feature_selector(problem_type, X, scaling_strategy)
+    cv_scores = train_models_core(X, y, preprocessor, selector, problem_type, scaling_strategy)
 
     ranked, top_model_names = _select_best_dev2_model(cv_scores, problem_type)
-    available_models = smart_model_selector(X, y, problem_type)
+    available_models = smart_model_selector(X, y, problem_type, scaling_strategy)
     selected_models = {
         name: available_models[name] for name in top_model_names if name in available_models
     }
@@ -386,7 +415,7 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
         dev2_choice = {"type": "single", "members": [model_name]}
 
     trained_model, X_train, X_test, y_train, y_test = final_training(
-        X, y, preprocessor, selector, dev2_model, problem_type
+        X, y, preprocessor, selector, dev2_model, problem_type, scaling_strategy
     )
     baseline_metrics = evaluate(trained_model, X_train, X_test, y_train, y_test, problem_type)
     print(f"Problem type: {problem_type}")
@@ -401,6 +430,7 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
         y_test,
         problem_type,
         random_state=random_state,
+        scaling_strategy=scaling_strategy,
     )
     final_model = optimization["final_model"]
     final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)

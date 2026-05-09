@@ -12,7 +12,6 @@ function getModelImportLine(problemType, modelName) {
     RandomForest: "from sklearn.ensemble import RandomForestClassifier",
     GradientBoost: "from sklearn.ensemble import GradientBoostingClassifier",
     NaiveBayes: "from sklearn.naive_bayes import GaussianNB",
-    BalancedRF: "from sklearn.ensemble import RandomForestClassifier",
   };
   const reg = {
     Linear: "from sklearn.linear_model import LinearRegression",
@@ -34,7 +33,6 @@ function getModelInstanceExpr(problemType, modelName) {
     RandomForest: "RandomForestClassifier()",
     GradientBoost: "GradientBoostingClassifier()",
     NaiveBayes: "GaussianNB()",
-    BalancedRF: "RandomForestClassifier(class_weight='balanced')",
   };
   const reg = {
     Linear: "LinearRegression()",
@@ -711,13 +709,15 @@ if tr_s is not None and te_s is not None:
     plt.close()
     viz_paths.append(str(p))
 
-scoring_perm = "accuracy" if PROBLEM_TYPE == "classification" else "r2"
+scoring_perm = "f1_weighted" if PROBLEM_TYPE == "classification" else "r2"
 try:
     perm = permutation_importance(pipe, x_test, y_test, n_repeats=5, random_state=42, scoring=scoring_perm)
     importances = pd.Series(perm.importances_mean, index=x_test.columns).sort_values(ascending=False)
     top_imp = importances.head(12).sort_values(ascending=True)
+    labels = [str(name) for name in top_imp.index]
     plt.figure(figsize=(8, 5))
-    sns.barplot(x=top_imp.values, y=top_imp.index, orient="h")
+    ax = sns.barplot(x=top_imp.values, y=labels, orient="h")
+    ax.set_ylabel("")
     plt.title("Permutation Feature Importance (Top Features)")
     plt.xlabel("Importance")
     p = viz_dir / "eval_permutation_importance.png"

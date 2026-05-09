@@ -257,19 +257,66 @@ def bivariate_analysis(df, num_cols, cat_cols, target=None, hue_col=None):
 # 📊 MULTIVARIATE ANALYSIS
 # ============================================
 
-def multivariate_analysis(df, num_cols, target_col=None, hue_col=None):
-    
+def _feature_counts_for_strategy(df, target_col):
+    num_all = df.select_dtypes(include=np.number).columns.tolist()
+    cat_all = [c for c in df.columns if c not in num_all]
+    if target_col in num_all:
+        n_num = len(num_all) - 1
+    else:
+        n_num = len(num_all)
+    if target_col in cat_all:
+        n_cat = len(cat_all) - 1
+    else:
+        n_cat = len(cat_all)
+    return n_num, n_cat
+
+
+def multivariate_analysis(df, num_cols, target_col=None, hue_col=None, strategy=None):
     print("\nMULTIVARIATE ANALYSIS\n")
-    
-    # 🔹 Correlation Heatmap
+
     corr_cols = [c for c in num_cols if c != target_col]
     if target_col in num_cols:
         corr_cols = num_cols
+    if strategy is not None and getattr(strategy, "eda_top_features_only", False) and len(corr_cols) > 15:
+        scored = []
+        for c in corr_cols:
+            if c not in df.columns:
+                continue
+            v = float(np.nanvar(pd.to_numeric(df[c], errors="coerce").values))
+            scored.append((c, v if np.isfinite(v) else 0.0))
+        scored.sort(key=lambda t: t[1], reverse=True)
+        corr_cols = [t[0] for t in scored[:15]]
+
     if len(corr_cols) >= 2:
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(df[corr_cols].corr(), annot=True, cmap="coolwarm")
+        annot = True if strategy is None else bool(getattr(strategy, "eda_heatmap_annotate", True))
+        sz = min(16.0, 6.0 + len(corr_cols) * 0.22)
+        plt.figure(figsize=(sz, sz * 0.88))
+        _hk = {"annot": annot, "cmap": "coolwarm"}
+        if annot:
+            _hk["fmt"] = ".2f"
+        sns.heatmap(df[corr_cols].corr(), **_hk)
         plt.title("Correlation Matrix")
+        plt.tight_layout()
         plt.show()
+
+    if (
+        strategy is not None
+        and getattr(strategy, "eda_include_pairplot", False)
+        and 2 <= len(corr_cols) <= 10
+    ):
+        cols = corr_cols[:8]
+        try:
+            plot_df = df[cols].dropna()
+            if len(plot_df) > 0:
+                sns.pairplot(
+                    plot_df,
+                    hue=hue_col if hue_col and hue_col in df.columns else None,
+                    corner=True,
+                    plot_kws={"alpha": 0.35, "s": 12},
+                )
+                plt.show()
+        except Exception:
+            pass
 
 
 # ============================================
@@ -308,13 +355,24 @@ def target_analysis(df, target, num_cols, cat_cols, hue_col=None):
 # 🚀 MAIN FUNCTION
 # ============================================
 
-def run_eda(file_path, target_col=None):
-    
+def run_eda(file_path, target_col=None, scaling_strategy=None, **kwargs):
+    _ = kwargs
     df = load_data(file_path)
     target_col = _resolve_target_column(df, target_col)
-    
+
+    if scaling_strategy is None:
+        from scalable_strategy import infer_scaling_strategy
+
+        nn, nc = _feature_counts_for_strategy(df, target_col)
+        scaling_strategy = infer_scaling_strategy(len(df), nn, nc)
+
+    max_rows = int(getattr(scaling_strategy, "eda_plot_max_rows", 5000) or 5000)
+    if len(df) > max_rows:
+        df = df.sample(n=max_rows, random_state=42).reset_index(drop=True)
+        print(f"\n[EDA] Plot sample: {max_rows} rows (tier={scaling_strategy.tier}).")
+
     basic_analysis(df)
-    
+
     num_cols, cat_cols = detect_column_types(df)
     selected = _select_plot_columns(df, num_cols, cat_cols, target_col=target_col)
     hue_col = _get_hue_column(df, target_col)
@@ -324,10 +382,17 @@ def run_eda(file_path, target_col=None):
     if selected["binary_cols"]:
         print(f"Binary columns detected: {selected['binary_cols']}")
 
-    # EDA visuals intentionally restricted to only correlation heatmap + pairplot.
-    multivariate_analysis(df, selected["num_cols"], target_col=target_col, hue_col=hue_col)
-    
-    print("\nEDA COMPLETED SUCCESSFULLY! (heatmap only)")
+    if getattr(scaling_strategy, "eda_full_univariate", False):
+        uni_num = selected["num_cols"][: min(6, len(selected["num_cols"]))]
+        uni_cat = selected["cat_cols"][: min(3, len(selected["cat_cols"]))]
+        if uni_num or uni_cat:
+            univariate_analysis(df, uni_num, uni_cat, hue_col=hue_col)
+
+    multivariate_analysis(
+        df, selected["num_cols"], target_col=target_col, hue_col=hue_col, strategy=scaling_strategy
+    )
+
+    print(f"\nEDA COMPLETED (tier={scaling_strategy.tier}).")
 
 
 def parse_args():

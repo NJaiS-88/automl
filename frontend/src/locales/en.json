@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "DataPilot AI",
+    "brand": "AutoML",
     "newRun": "New Run",
     "history": "History",
     "dashboard": "Dashboard",
@@ -27,7 +27,8 @@
     "deleteAccount": "Delete Account",
     "passwordChanged": "Password changed successfully.",
     "passwordChangeFailed": "Unable to change password.",
-    "accountDeleteFailed": "Unable to delete account."
+    "accountDeleteFailed": "Unable to delete account.",
+    "projects": "Projects"
   },
   "auth": {
     "login": "Login",
@@ -53,6 +54,33 @@
   },
   "run": {
     "title": "New Training Run"
+  },
+  "dialogs": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "notice": "Notice"
+  },
+  "projects": {
+    "searchPlaceholder": "Search by project or dataset name",
+    "create": "Create",
+    "deleteTitle": "Delete project",
+    "deleteConfirm": "Delete \"{{name}}\"? This removes the run from the database and deletes uploaded CSV, model, report, plots, and related generated files. This cannot be undone.",
+    "deleteFailed": "Could not delete the project. Please try again.",
+    "addToProjectsTitle": "Save to Projects?",
+    "addToProjectsMessage": "Show this training run on your Projects page? You can add it later from the run dashboard.",
+    "addToProjectsYes": "Yes, save it",
+    "addToProjectsNo": "Not now",
+    "addToProjectsButton": "Add to Projects",
+    "notOnProjectsListBanner": "This run is not listed on Projects yet. Use the button to show it alongside your saved projects.",
+    "emptyTitle": "No saved projects yet",
+    "emptyHint": "After a training run finishes, choose \"Yes, save it\" to show it here, or add runs later from their dashboard."
+  },
+  "runDetails": {
+    "streamlitWait": "This run is not completed yet. Wait for training to finish.",
+    "copyUrlSuccess": "URL copied. Paste it into Chrome or Edge.",
+    "copyUrlManual": "Copy manually:\n{{url}}",
+    "reportJsonFail": "Unable to download report JSON."
   },
   "landing": {
     "heroTitle": "Train Better Models Faster",

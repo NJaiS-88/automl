@@ -16,7 +16,9 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import accuracy_score, r2_score
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.pipeline import Pipeline
+from scipy.stats import randint
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
@@ -51,6 +53,10 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, problem_type) -> Sco
     return ScoreBundle(train=train_score, test=test_score, metric_name="r2")
 
 
+# Keep in sync with dev2_automl_doctor.IMBALANCE_MINOR_RATIO_THRESHOLD
+IMBALANCE_MINOR_RATIO_THRESHOLD = 0.3
+
+
 def detect_issues(train_score: float, test_score: float, problem_type: str, n_samples: int) -> str:
     # Dynamic overfit threshold: stricter for larger datasets, looser for smaller ones.
     base_gap = 0.08 if problem_type == "classification" else 0.12
@@ -81,7 +87,7 @@ def check_imbalance(y_train) -> bool:
     minority_ratio = ratio.min()
     majority_to_minority = ratio.max() / max(minority_ratio, 1e-9)
 
-    return minority_ratio < 0.2 or majority_to_minority > 4.0
+    return minority_ratio < IMBALANCE_MINOR_RATIO_THRESHOLD or majority_to_minority > 4.0
 
 
 def _dynamic_forest_size(n_samples: int, n_features: int, issue: str) -> int:
@@ -180,16 +186,6 @@ def _build_candidate_estimators(
             ),
         }
 
-        if imbalance:
-            candidates["BalancedRF"] = RandomForestClassifier(
-                n_estimators=n_estimators,
-                max_depth=_safe_tree_depth(n_features, issue),
-                min_samples_leaf=2 if issue == "overfitting" else 1,
-                max_features="sqrt",
-                class_weight="balanced",
-                random_state=random_state,
-                n_jobs=_parallel_jobs(),
-            )
         return candidates
 
     svr_c = 0.8 if issue == "overfitting" else (3.0 if issue == "underfitting" else 1.5)
@@ -248,6 +244,121 @@ def improve_model(
     )
 
 
+def _build_fast_candidates(
+    problem_type: str,
+    issue: str,
+    imbalance: bool,
+    n_samples: int,
+    n_features: int,
+    random_state: int = 42,
+) -> Dict[str, Any]:
+    """Small set of fast estimators for large datasets (keeps total runtime bounded)."""
+    n_estimators = min(220, max(80, int(_dynamic_forest_size(n_samples, n_features, issue) * 0.55)))
+    n_estimators_gb = max(60, int(n_estimators * 0.5))
+
+    if problem_type == "classification":
+        cw = "balanced" if imbalance else None
+        return {
+            "Logistic": LogisticRegression(max_iter=2500, C=1.0, class_weight=cw, solver="lbfgs"),
+            "DecisionTree": DecisionTreeClassifier(
+                max_depth=_safe_tree_depth(n_features, issue),
+                min_samples_leaf=2,
+                class_weight=cw,
+                random_state=random_state,
+            ),
+            "RandomForest": RandomForestClassifier(
+                n_estimators=n_estimators,
+                max_depth=_safe_tree_depth(n_features, issue),
+                min_samples_leaf=2,
+                max_features="sqrt",
+                class_weight=cw,
+                random_state=random_state,
+                n_jobs=_parallel_jobs(),
+            ),
+            "GradientBoost": GradientBoostingClassifier(
+                n_estimators=n_estimators_gb,
+                learning_rate=0.1,
+                max_depth=2,
+                random_state=random_state,
+            ),
+        }
+
+    return {
+        "Linear": LinearRegression(),
+        "DecisionTree": DecisionTreeRegressor(
+            max_depth=_safe_tree_depth(n_features, issue),
+            min_samples_leaf=2,
+            random_state=random_state,
+        ),
+        "RandomForest": RandomForestRegressor(
+            n_estimators=n_estimators,
+            max_depth=_safe_tree_depth(n_features, issue),
+            min_samples_leaf=2,
+            max_features=max(0.33, min(0.8, np.sqrt(max(n_features, 1)) / max(n_features, 1))),
+            random_state=random_state,
+            n_jobs=_parallel_jobs(),
+        ),
+        "GradientBoost": GradientBoostingRegressor(
+            n_estimators=n_estimators_gb,
+            learning_rate=0.1,
+            max_depth=2,
+            random_state=random_state,
+        ),
+    }
+
+
+def _try_randomized_forest_tune(
+    base_model,
+    X_train,
+    X_test,
+    y_train,
+    y_test,
+    problem_type: str,
+    scaling_strategy: Any,
+):
+    if scaling_strategy is None or not getattr(scaling_strategy, "use_randomized_search", False):
+        return None
+    n_iter = int(getattr(scaling_strategy, "randomized_search_iter", 0) or 0)
+    if n_iter <= 0:
+        return None
+    if not hasattr(base_model, "named_steps") or "model" not in base_model.named_steps:
+        return None
+    mstep = base_model.named_steps["model"]
+    name = type(mstep).__name__
+    if "Forest" not in name:
+        return None
+
+    pipe = clone(base_model)
+    params = {
+        "model__n_estimators": randint(60, 281),
+        "model__max_depth": [None, 6, 10, 14, 20],
+        "model__min_samples_leaf": [1, 2, 4],
+    }
+    scoring = "f1_weighted" if problem_type == "classification" else "r2"
+    cv_folds = int(getattr(scaling_strategy, "randomized_search_cv", 2) or 2)
+    try:
+        rs = RandomizedSearchCV(
+            pipe,
+            params,
+            n_iter=min(n_iter, 24),
+            cv=cv_folds,
+            scoring=scoring,
+            n_jobs=_parallel_jobs(),
+            random_state=42,
+            refit=True,
+        )
+        rs.fit(X_train, y_train)
+    except Exception:
+        return None
+
+    best = rs.best_estimator_
+    scores = evaluate_model(best, X_train, X_test, y_train, y_test, problem_type)
+    base_scores = evaluate_model(base_model, X_train, X_test, y_train, y_test, problem_type)
+    if scores.test >= base_scores.test:
+        return best, scores.train, scores.test
+    return None
+
+
 def _fit_candidate_in_same_structure(original_model, candidate_estimator, X_train, y_train):
     """
     Keep Dev2 structure intact:
@@ -273,6 +384,7 @@ def optimize_model(
     y_test,
     problem_type: str,
     random_state: int = 42,
+    scaling_strategy: Any = None,
 ) -> Dict[str, Any]:
     before = evaluate_model(model, X_train, X_test, y_train, y_test, problem_type)
     issue = detect_issues(before.train, before.test, problem_type, n_samples=len(X_train))
@@ -281,14 +393,27 @@ def optimize_model(
     if problem_type == "classification":
         imbalance = check_imbalance(y_train)
 
-    candidate_estimators = improve_model(
-        problem_type=problem_type,
-        issue=issue,
-        imbalance=imbalance,
-        n_samples=len(X_train),
-        n_features=X_train.shape[1],
-        random_state=random_state,
+    use_fast = bool(getattr(scaling_strategy, "dev3_fast", False)) if scaling_strategy else (
+        len(X_train) > 35_000
     )
+    if use_fast:
+        candidate_estimators = _build_fast_candidates(
+            problem_type=problem_type,
+            issue=issue,
+            imbalance=imbalance,
+            n_samples=len(X_train),
+            n_features=X_train.shape[1],
+            random_state=random_state,
+        )
+    else:
+        candidate_estimators = improve_model(
+            problem_type=problem_type,
+            issue=issue,
+            imbalance=imbalance,
+            n_samples=len(X_train),
+            n_features=X_train.shape[1],
+            random_state=random_state,
+        )
 
     best_candidate_name = None
     best_candidate_estimator = None
@@ -337,6 +462,23 @@ def optimize_model(
             final_train = before.train
             final_test = before.test
             selected_version = "original"
+
+    if scaling_strategy is not None and getattr(scaling_strategy, "use_randomized_search", False):
+        rs_out = _try_randomized_forest_tune(
+            final_model,
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            problem_type,
+            scaling_strategy,
+        )
+        if rs_out is not None:
+            final_model, rt, ste = rs_out
+            if ste >= final_test:
+                final_train = rt
+                final_test = ste
+                selected_version = "randomized_search"
 
     return {
         "metric": before.metric_name,
