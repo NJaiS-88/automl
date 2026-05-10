@@ -474,7 +474,13 @@ router.post("/start", requireAuth, async (req, res) => {
       });
     }
 
-    const childEnv = { ...envWithPythonScriptsFromExe(pythonExe), ...runContext.extras };
+    const childEnv = {
+      ...envWithPythonScriptsFromExe(pythonExe),
+      ...runContext.extras,
+      // Reverse-proxy (Render + Express): avoid WS / session issues behind TLS.
+      STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: "false",
+      STREAMLIT_SERVER_ENABLE_CORS: "false",
+    };
 
     try {
       await startStreamlitWithFallbacks(pythonExe, appPath, port, cwd, childEnv);

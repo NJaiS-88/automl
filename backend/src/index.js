@@ -12,7 +12,7 @@ const streamlitRouter = require("./routes/streamlit");
 
 const app = express();
 let server;
-app.set("trust proxy", 1);
+app.set("trust proxy", true);
 function normalizeOrigin(origin) {
   return String(origin || "")
     .trim()
@@ -88,10 +88,15 @@ app.use("/api/auth", authRouter);
 app.use("/api/runs", runsRouter);
 app.use("/api/streamlit", streamlitRouter);
 
+const streamlitPort =
+  Number.parseInt(process.env.STREAMLIT_PORT || "8501", 10) || 8501;
+const streamlitTarget = `http://127.0.0.1:${streamlitPort}`;
 const streamlitMountPrefix = `/${STREAMLIT_PUBLIC_MOUNT}`;
 const streamlitProxy = createProxyMiddleware({
-  target: "http://127.0.0.1:8501",
-  changeOrigin: true,
+  target: streamlitTarget,
+  // Must NOT rewrite Host to 127.0.0.1 — Streamlit’s WS handshake rejects that on Render.
+  changeOrigin: false,
+  xfwd: true,
   ws: true,
   pathFilter: (pathname) =>
     pathname === streamlitMountPrefix ||
