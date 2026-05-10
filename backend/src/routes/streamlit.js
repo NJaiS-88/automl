@@ -9,6 +9,10 @@ const mongoose = require("mongoose");
 
 const { requireAuth } = require("../middleware/auth");
 const RunHistory = require("../models/RunHistory");
+const {
+  STREAMLIT_PUBLIC_MOUNT,
+  getStreamlitPublicUrl,
+} = require("../config/streamlitPublic");
 
 const router = express.Router();
 
@@ -200,6 +204,8 @@ function buildStreamlitModuleArgs(appPath, port) {
     String(port),
     "--server.address",
     "127.0.0.1",
+    "--server.baseUrlPath",
+    STREAMLIT_PUBLIC_MOUNT,
     "--server.headless",
     "true",
     "--browser.gatherUsageStats",
@@ -229,6 +235,8 @@ function buildStreamlitCliArgs(appPath, port) {
     String(port),
     "--server.address",
     "127.0.0.1",
+    "--server.baseUrlPath",
+    STREAMLIT_PUBLIC_MOUNT,
     "--server.headless",
     "true",
     "--browser.gatherUsageStats",
@@ -331,7 +339,7 @@ function probeHttp(url, timeoutMs = 2500) {
 }
 
 async function waitUntilStreamlitResponds(port, maxWaitMs = 35000) {
-  const url = `http://127.0.0.1:${port}/`;
+  const url = `http://127.0.0.1:${port}/${STREAMLIT_PUBLIC_MOUNT}/`;
   const deadline = Date.now() + maxWaitMs;
   let lastErr = null;
   while (Date.now() < deadline) {
@@ -495,7 +503,7 @@ router.post("/start", requireAuth, async (req, res) => {
       });
     }
 
-    const url = `http://127.0.0.1:${port}`;
+    const url = getStreamlitPublicUrl();
     return res.json({
       ok: true,
       url,

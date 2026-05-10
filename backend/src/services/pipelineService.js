@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
+const { getGeneratedDir } = require("../config/paths");
 
 function sendDebugLog({ runId, hypothesisId, location, message, data }) {
   // #region agent log
@@ -136,7 +137,7 @@ function runPythonPipeline({
 }) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, "../../python/run_pipeline_api.py");
-    const runtimeGeneratedDir = path.join(process.cwd(), "generated");
+    const runtimeGeneratedDir = getGeneratedDir();
     if (!fs.existsSync(runtimeGeneratedDir)) {
       fs.mkdirSync(runtimeGeneratedDir, { recursive: true });
     }
@@ -230,7 +231,7 @@ function runPythonPipeline({
 
 function runPythonPredict({ projectRoot, modelPath, payload }) {
   return new Promise((resolve, reject) => {
-    const generatedDir = path.join(projectRoot, "backend", "generated");
+    const generatedDir = getGeneratedDir();
     if (!fs.existsSync(generatedDir)) {
       fs.mkdirSync(generatedDir, { recursive: true });
     }
@@ -296,7 +297,7 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
 function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, "../../python/generate_visualizations_api.py");
-    const runtimeGeneratedDir = path.join(process.cwd(), "generated");
+    const runtimeGeneratedDir = getGeneratedDir();
     if (!fs.existsSync(runtimeGeneratedDir)) {
       fs.mkdirSync(runtimeGeneratedDir, { recursive: true });
     }

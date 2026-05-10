@@ -16,23 +16,19 @@ const {
   buildTailoredTrainingScript,
   buildTailoredTrainingNotebook,
 } = require("../utils/trainingExport");
+const { getUploadsDir, getGeneratedDir } = require("../config/paths");
 
 const router = express.Router();
 
-const uploadsDir = path.join(process.cwd(), "uploads");
-const generatedDir = path.join(process.cwd(), "generated");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-if (!fs.existsSync(generatedDir)) fs.mkdirSync(generatedDir, { recursive: true });
-
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  destination: (_req, _file, cb) => cb(null, getUploadsDir()),
   filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 const upload = multer({ storage });
 
 function toGeneratedUrl(absPath) {
   const resolved = path.resolve(absPath);
-  const relRaw = path.relative(generatedDir, resolved);
+  const relRaw = path.relative(getGeneratedDir(), resolved);
   if (!relRaw || relRaw.startsWith("..") || path.isAbsolute(relRaw)) {
     return null;
   }
@@ -60,6 +56,7 @@ function cleanupGeneratedArtifactsForRun(runId) {
   const id = runId ? String(runId) : "";
   if (!id || id.length < 8) return;
   try {
+    const generatedDir = getGeneratedDir();
     if (!fs.existsSync(generatedDir)) return;
 
     safeUnlink(path.join(generatedDir, `tmp_viz_payload_${id}.json`));
@@ -380,7 +377,7 @@ router.post("/:id/plots/add", async (req, res, next) => {
 
     const derivedPaths = validUrls.map((url) => {
       const rel = url.replace(/^\/generated\//, "");
-      return path.join(generatedDir, rel);
+      return path.join(getGeneratedDir(), rel);
     });
     const nextPaths = Array.from(new Set([...existingPaths, ...derivedPaths]));
 

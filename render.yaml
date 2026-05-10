@@ -1,23 +1,31 @@
+# Repo root must contain `backend/`, `streamlit_tailored_app/`, this file, etc.
+# Docs: https://render.com/docs/infrastructure-as-code
+#
+# Optional persistent disk (paid): in the Render dashboard add a disk and mount it,
+# then set DATA_DIR to that mount path (e.g. /var/render/data) so uploads/models survive restarts.
 services:
   - type: web
     name: automl-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install && pip install -r requirements.txt
+    buildCommand: npm ci && pip install --no-cache-dir -r requirements.txt
     startCommand: npm start
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: 20.18.0
+        value: "20.18.0"
       - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: PORT
-        value: 4000
+        value: "3.11.9"
+      - key: NODE_ENV
+        value: production
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: PROJECT_ROOT
-        value: /opt/render/project/src
       - key: CLIENT_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DATA_DIR
         sync: false
