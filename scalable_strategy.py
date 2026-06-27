@@ -97,8 +97,8 @@ def infer_scaling_strategy(
         one_hot_sparse = n_total > 200
         wide_filter = n_total > 100
         freq_enc = n_categorical_cols > 30
-        rand_search = False
-        rs_iter = 0
+        rand_search = True
+        rs_iter = 10
         rs_cv = 3
         eda_rows = min(n_rows, 10_000)
         eda_full_uni = True
@@ -129,8 +129,8 @@ def infer_scaling_strategy(
         one_hot_sparse = True
         wide_filter = n_total > 80
         freq_enc = n_categorical_cols > 30
-        rand_search = False
-        rs_iter = 0
+        rand_search = True
+        rs_iter = 6
         rs_cv = 2
         eda_rows = 3000
         eda_full_uni = False

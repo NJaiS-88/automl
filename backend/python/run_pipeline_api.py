@@ -289,6 +289,25 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
         scaling_strategy=scaling_strategy,
     )
     final_model = optimization["final_model"]
+
+    # Calibrate predict_proba for classification (improves ROC AUC reliability).
+    if problem_type == "classification":
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.base import clone
+        calib_cv = 3 if len(X_train) < 50000 else (2 if len(X_train) < 150000 else 1)
+        if calib_cv > 1:
+            try:
+                calibrator = CalibratedClassifierCV(
+                    estimator=clone(final_model),
+                    cv=calib_cv,
+                    ensemble=True,
+                    n_jobs=-1,
+                )
+                calibrator.fit(X_train, y_train)
+                final_model = calibrator
+            except Exception:
+                pass
+
     final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)
 
     # For very large datasets, optionally train extra chunk models and merge (strategy-gated; off by default on tier L).

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import Papa from "papaparse";
 import { FiUploadCloud } from "react-icons/fi";
 
+const MAX_FILE_SIZE = 200 * 1024 * 1024;
+
 function RunForm({ onSubmit, loading, error }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
   const [file, setFile] = useState(null);
@@ -9,6 +11,8 @@ function RunForm({ onSubmit, loading, error }) {
   const [targetCol, setTargetCol] = useState("");
   const [datasetHead, setDatasetHead] = useState({ columns: [], rows: [] });
   const [datasetStats, setDatasetStats] = useState({ rowCount: 0, columnCount: 0 });
+  const [columnStats, setColumnStats] = useState({});
+  const [validationError, setValidationError] = useState("");
   const previewScrollRef = useRef(null);
   const [showLeftHue, setShowLeftHue] = useState(false);
   const [showRightHue, setShowRightHue] = useState(false);
@@ -18,19 +22,50 @@ function RunForm({ onSubmit, loading, error }) {
     const parsed = Papa.parse(text, {
       header: true,
       skipEmptyLines: true,
+      dynamicTyping: true,
     });
     const parsedRows = Array.isArray(parsed.data) ? parsed.data : [];
     const columns = Array.isArray(parsed.meta?.fields) ? parsed.meta.fields : [];
     const rows = parsedRows.slice(0, 8);
     setDatasetHead({ columns, rows });
     setDatasetStats({ rowCount: parsedRows.length, columnCount: columns.length });
+
+    const stats = {};
+    for (const col of columns) {
+      const vals = parsedRows.map((r) => r[col]).filter((v) => v != null && v !== "");
+      const unique = new Set(vals);
+      stats[col] = {
+        uniqueCount: unique.size,
+        isConstant: unique.size <= 1,
+        allUnique: vals.length > 0 && unique.size === vals.length,
+        nonEmptyCount: vals.length,
+      };
+    }
+    setColumnStats(stats);
   };
 
   const handleFileSelected = async (nextFile) => {
+    setValidationError("");
     if (!nextFile) return;
+
+    if (nextFile.size > MAX_FILE_SIZE) {
+      setValidationError(`File size exceeds 200 MB limit (${(nextFile.size / (1024 * 1024)).toFixed(1)} MB).`);
+      return;
+    }
+
+    if (!nextFile.name.toLowerCase().endsWith(".csv")) {
+      setValidationError("Only CSV files are supported.");
+      return;
+    }
+
     setFile(nextFile);
     setTargetCol("");
-    await parseDatasetHead(nextFile);
+
+    try {
+      await parseDatasetHead(nextFile);
+    } catch {
+      setValidationError("Failed to parse CSV file. Please check the file format.");
+    }
   };
 
   const updateHorizontalHue = () => {
@@ -40,11 +75,39 @@ function RunForm({ onSubmit, loading, error }) {
     setShowRightHue(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
   };
 
+  const getTargetValidationError = () => {
+    const col = targetCol.trim();
+    if (!col) return "";
+    const stats = columnStats[col];
+    if (!stats) return "";
+    if (stats.isConstant) return `Target column "${col}" is constant (all values are the same).`;
+    return "";
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const normalizedTarget = targetCol.trim();
+
+    setValidationError("");
     if (!file || !normalizedTarget || loading) return;
     if (datasetHead.columns.length && !datasetHead.columns.includes(normalizedTarget)) return;
+
+    const targetErr = getTargetValidationError();
+    if (targetErr) {
+      setValidationError(targetErr);
+      return;
+    }
+
+    if (datasetStats.rowCount === 0) {
+      setValidationError("CSV file has no data rows.");
+      return;
+    }
+
+    if (datasetStats.columnCount === 0) {
+      setValidationError("CSV file has no columns.");
+      return;
+    }
+
     try {
       await onSubmit({ file, targetCol: normalizedTarget, projectName: projectName.trim() });
     } catch {
@@ -224,6 +287,7 @@ function RunForm({ onSubmit, loading, error }) {
                 Analyze Dataset
               </button>
               {error && <p style={{ margin: 0, color: "#b91c1c" }}>{error}</p>}
+              {validationError && <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.9rem" }}>{validationError}</p>}
             </div>
           </section>
         </div>

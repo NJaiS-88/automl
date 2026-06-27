@@ -1,6 +1,17 @@
 # AutoML Project (Dev1 + Dev2 + Dev3)
 
-This repository now runs all three developer stages in order:
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| **[TECHNICAL_REFERENCE.md](./TECHNICAL_REFERENCE.md)** | **Deep-dive reference** — repository layout, every pipeline stage (`dev0`–`dev3`), `ScalingStrategy` tiers, leakage guard / imbalance / CV / model zoo, Node API routes, Mongo schemas, frontend module map, Streamlit integration, env vars, Mermaid sequences, troubleshooting, extension points |
+| **This README** | Quick orientation, CLI usage, MERN setup, deployment (Vercel + Render), safety notes |
+
+Read **[TECHNICAL_REFERENCE.md](./TECHNICAL_REFERENCE.md)** when you need implementation-level detail (API tables, JSON report shape, differences between CLI vs `run_pipeline_api`, chunk ensembles, proxy behavior).
+
+---
+
+This repository runs all three developer stages in order:
 
 1. `dev1_data_pipeline.py` - Data validation/cleaning + end-to-end orchestration
 2. `dev2_automl_doctor.py` - AutoML model training and model selection
@@ -209,7 +220,6 @@ Create `backend/.env`:
 PORT=4000
 MONGODB_URI=<your_mongodb_uri>
 CLIENT_URL=http://localhost:5173
-PROJECT_ROOT=C:/New folder (6)
 JWT_SECRET=<strong_secret_here>
 ```
 
@@ -247,8 +257,8 @@ Set env vars in your host:
 - `MONGODB_URI`
 - `JWT_SECRET`
 - `CLIENT_URL`
-- `PROJECT_ROOT`
 - `PORT`
+- `PROJECT_ROOT` (optional — auto-detected as parent of `backend/`)
 - Install Python deps for pipeline bridge:
   - `pip install -r backend/requirements.txt`
 
@@ -276,8 +286,8 @@ Deploy `frontend/dist` on static hosting (Vercel/Netlify/etc), and point API bas
   - `MONGODB_URI`
   - `JWT_SECRET`
   - `PORT=4000`
-  - `PROJECT_ROOT=/opt/render/project/src`
   - `CLIENT_URL=https://<your-vercel-domain>`
+  - `PROJECT_ROOT` (optional — defaults to parent of `backend/`)
 
 You can also use provided `render.yaml`.
 

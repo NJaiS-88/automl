@@ -1,14 +1,24 @@
 # Repo root must contain `backend/`, `streamlit_tailored_app/`, this file, etc.
 # Docs: https://render.com/docs/infrastructure-as-code
 #
-# Optional persistent disk (paid): in the Render dashboard add a disk and mount it,
-# then set DATA_DIR to that mount path (e.g. /var/render/data) so uploads/models survive restarts.
+# Required env vars (set in Render dashboard — do not commit secrets):
+#   MONGODB_URI, JWT_SECRET, CLIENT_URL
+#
+# Optional:
+#   PUBLIC_BASE_URL  — public https URL of this service (Render injects RENDER_EXTERNAL_URL
+#                      automatically; only set PUBLIC_BASE_URL if you need a custom domain).
+#   DATA_DIR         — mount path for a persistent disk (Render paid add-on) so
+#                      uploads/ and generated/ survive restarts.
+#   PYTHON_EXECUTABLE — override Python binary path. On Render with PYTHON_VERSION set,
+#                       `python3` is auto-resolved; only set if you need a specific venv.
 services:
   - type: web
     name: automl-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm ci && pip install --no-cache-dir -r requirements.txt
+    buildCommand: |
+      npm ci
+      python -m pip install --no-cache-dir -r requirements.txt
     startCommand: npm start
     autoDeploy: true
     healthCheckPath: /health

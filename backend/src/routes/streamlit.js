@@ -159,12 +159,12 @@ async function tryImportStreamlit(exe, prefixArgs = []) {
  */
 async function resolvePythonWithStreamlit() {
   const candidates = [];
-  const py = process.env.PYTHON?.trim();
+  const py = process.env.PYTHON?.trim() || process.env.PYTHON_EXECUTABLE?.trim();
   if (py) candidates.push({ exe: py, prefix: [] });
 
   if (process.platform === "win32") {
     // Match ensurePythonDeps.js: prefer 3.10–3.12 so we don’t pick 3.13 (often missing wheels / no pip install).
-    for (const v of ["-3.12", "-3.11", "-3.10", "-3.9", "-3"]) {
+    for (const v of ["-3.13", "-3.12", "-3.11", "-3.10", "-3.9", "-3"]) {
       candidates.push({ exe: "py", prefix: [v] });
     }
     candidates.push({ exe: "python", prefix: [] });

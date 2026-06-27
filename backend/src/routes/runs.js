@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const { randomUUID } = require("crypto");
+const { parse } = require("csv-parse");
 
 const RunHistory = require("../models/RunHistory");
 const { requireAuth } = require("../middleware/auth");
@@ -24,7 +25,16 @@ const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, getUploadsDir()),
   filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!file.originalname.toLowerCase().endsWith(".csv")) {
+      return cb(new Error("Only CSV files are supported."));
+    }
+    cb(null, true);
+  },
+});
 
 function toGeneratedUrl(absPath) {
   const resolved = path.resolve(absPath);
@@ -48,8 +58,58 @@ function safeUnlink(filePath) {
       fs.unlinkSync(filePath);
     }
   } catch (_e) {
-    // ignore cleanup errors
+    // ignore
   }
+}
+
+function validateCsvTarget(filePath, targetCol) {
+  return new Promise((resolve, reject) => {
+    let rowCount = 0;
+    let colNames = [];
+    const targetValues = [];
+    let parseError = null;
+
+    const parser = parse({
+      columns: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      bom: true,
+      trim: true,
+    });
+
+    parser.on("data", (record) => {
+      if (!colNames.length) colNames = Object.keys(record);
+      rowCount += 1;
+      const val = record[targetCol];
+      if (val != null && String(val).trim() !== "") {
+        targetValues.push(String(val).trim());
+      }
+    });
+
+    parser.on("error", (err) => {
+      parseError = err;
+    });
+
+    parser.on("end", () => {
+      if (parseError) return reject(parseError);
+      if (rowCount === 0) return reject(new Error("CSV file has no data rows."));
+      if (colNames.length === 0) return reject(new Error("CSV file has no columns."));
+      if (!colNames.includes(targetCol)) {
+        return reject(new Error(`Target column "${targetCol}" not found. Available columns: ${colNames.join(", ")}`));
+      }
+
+      const uniqueValues = new Set(targetValues);
+      if (uniqueValues.size <= 1) {
+        return reject(new Error(`Target column "${targetCol}" is constant (all values are the same).`));
+      }
+
+      resolve({ rowCount, columns: colNames });
+    });
+
+    const stream = fs.createReadStream(filePath, { encoding: "utf-8" });
+    stream.on("error", reject);
+    stream.pipe(parser);
+  });
 }
 
 function cleanupGeneratedArtifactsForRun(runId) {
@@ -175,6 +235,8 @@ router.post("/execute", upload.single("dataset"), async (req, res, next) => {
     if (!req.file) return res.status(400).json({ message: "Dataset file is required" });
     const { targetCol, visualizations = "no", projectName: bodyProjectName } = req.body;
     if (!targetCol) return res.status(400).json({ message: "targetCol is required" });
+
+    await validateCsvTarget(req.file.path, targetCol);
 
     const trimmedPn =
       typeof bodyProjectName === "string" && bodyProjectName.trim() ? bodyProjectName.trim() : "";

@@ -186,12 +186,40 @@ def _build_candidate_estimators(
             ),
         }
 
+        try:
+            from xgboost import XGBClassifier
+            candidates["XGBoost"] = XGBClassifier(
+                n_estimators=max(80, int(n_estimators * 0.6)),
+                max_depth=3 if issue == "overfitting" else 5,
+                learning_rate=0.03 if issue == "overfitting" else 0.1,
+                tree_method="hist",
+                n_jobs=_parallel_jobs(),
+                random_state=random_state,
+                verbosity=0,
+            )
+        except Exception:
+            pass
+
+        try:
+            from lightgbm import LGBMClassifier
+            candidates["LightGBM"] = LGBMClassifier(
+                n_estimators=max(100, int(n_estimators * 0.7)),
+                max_depth=3 if issue == "overfitting" else -1,
+                num_leaves=31 if issue == "overfitting" else 63,
+                learning_rate=0.03 if issue == "overfitting" else 0.1,
+                n_jobs=_parallel_jobs(),
+                random_state=random_state,
+                verbosity=-1,
+            )
+        except Exception:
+            pass
+
         return candidates
 
     svr_c = 0.8 if issue == "overfitting" else (3.0 if issue == "underfitting" else 1.5)
     svr_epsilon = 0.2 if issue == "overfitting" else 0.1
 
-    return {
+    candidates = {
         "Linear": LinearRegression(),
         "SVR": SVR(
             C=svr_c,
@@ -223,6 +251,36 @@ def _build_candidate_estimators(
             random_state=random_state,
         ),
     }
+
+    try:
+        from xgboost import XGBRegressor
+        candidates["XGBoost"] = XGBRegressor(
+            n_estimators=max(80, int(n_estimators * 0.6)),
+            max_depth=3 if issue == "overfitting" else 5,
+            learning_rate=0.03 if issue == "overfitting" else 0.1,
+            tree_method="hist",
+            n_jobs=_parallel_jobs(),
+            random_state=random_state,
+            verbosity=0,
+        )
+    except Exception:
+        pass
+
+    try:
+        from lightgbm import LGBMRegressor
+        candidates["LightGBM"] = LGBMRegressor(
+            n_estimators=max(100, int(n_estimators * 0.7)),
+            max_depth=3 if issue == "overfitting" else -1,
+            num_leaves=31 if issue == "overfitting" else 63,
+            learning_rate=0.03 if issue == "overfitting" else 0.1,
+            n_jobs=_parallel_jobs(),
+            random_state=random_state,
+            verbosity=-1,
+        )
+    except Exception:
+        pass
+
+    return candidates
 
 
 def improve_model(
@@ -258,7 +316,7 @@ def _build_fast_candidates(
 
     if problem_type == "classification":
         cw = "balanced" if imbalance else None
-        return {
+        candidates = {
             "Logistic": LogisticRegression(max_iter=2500, C=1.0, class_weight=cw, solver="lbfgs"),
             "DecisionTree": DecisionTreeClassifier(
                 max_depth=_safe_tree_depth(n_features, issue),
@@ -283,7 +341,36 @@ def _build_fast_candidates(
             ),
         }
 
-    return {
+        try:
+            from xgboost import XGBClassifier
+            candidates["XGBoost"] = XGBClassifier(
+                n_estimators=n_estimators_gb,
+                max_depth=4,
+                learning_rate=0.08,
+                tree_method="hist",
+                n_jobs=_parallel_jobs(),
+                random_state=random_state,
+                verbosity=0,
+            )
+        except Exception:
+            pass
+
+        try:
+            from lightgbm import LGBMClassifier
+            candidates["LightGBM"] = LGBMClassifier(
+                n_estimators=n_estimators_gb,
+                max_depth=-1,
+                num_leaves=48,
+                n_jobs=_parallel_jobs(),
+                random_state=random_state,
+                verbosity=-1,
+            )
+        except Exception:
+            pass
+
+        return candidates
+
+    candidates = {
         "Linear": LinearRegression(),
         "DecisionTree": DecisionTreeRegressor(
             max_depth=_safe_tree_depth(n_features, issue),
@@ -305,6 +392,35 @@ def _build_fast_candidates(
             random_state=random_state,
         ),
     }
+
+    try:
+        from xgboost import XGBRegressor
+        candidates["XGBoost"] = XGBRegressor(
+            n_estimators=n_estimators_gb,
+            max_depth=4,
+            learning_rate=0.08,
+            tree_method="hist",
+            n_jobs=_parallel_jobs(),
+            random_state=random_state,
+            verbosity=0,
+        )
+    except Exception:
+        pass
+
+    try:
+        from lightgbm import LGBMRegressor
+        candidates["LightGBM"] = LGBMRegressor(
+            n_estimators=n_estimators_gb,
+            max_depth=-1,
+            num_leaves=48,
+            n_jobs=_parallel_jobs(),
+            random_state=random_state,
+            verbosity=-1,
+        )
+    except Exception:
+        pass
+
+    return candidates
 
 
 def _try_randomized_forest_tune(

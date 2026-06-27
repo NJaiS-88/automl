@@ -1,4 +1,5 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -52,12 +53,15 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (isAllowedOrigin(origin)) return callback(null, true);
+      if (isAllowedOrigin(origin)) return callback(null, origin);
       return callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    // Omit allowedHeaders so preflight echoes Access-Control-Request-Headers (Axios often
+    // adds Accept, etc.); a fixed short list can fail preflight and Chrome may report it
+    // as a missing Access-Control-Allow-Origin error.
+    maxAge: 86_400,
   })
 );
 app.use(express.json({ limit: "5mb" }));

@@ -282,7 +282,7 @@ def sanitize_leakage_features(X: pd.DataFrame, y: pd.Series):
     for col in list(Xo.columns):
         s = Xo[col]
         nn = s.dropna()
-        if len(nn) >= 2 and nn.nunique() == len(nn):
+        if len(nn) >= 2 and nn.nunique() == len(nn) and not pd.api.types.is_float_dtype(s):
             dropped.append(col)
             Xo = Xo.drop(columns=[col])
             continue
@@ -323,6 +323,8 @@ def sanitize_leakage_features(X: pd.DataFrame, y: pd.Series):
 
 
 def build_preprocessor(num_cols, cat_cols, use_iterative=True, sparse_ohe: bool = False):
+    if not num_cols and not cat_cols:
+        return "passthrough"
     if use_iterative:
         num_pipe = Pipeline(
             [
@@ -366,6 +368,8 @@ def get_feature_selector(problem_type, X, scaling_strategy=None):
     if scaling_strategy is not None:
         k_cap = int(getattr(scaling_strategy, "feature_selection_k", 10) or 10)
     k = min(k_cap, X.shape[1])
+    if k <= 0:
+        return "passthrough"
     return SelectKBest(
         score_func=f_classif if problem_type == "classification" else f_regression,
         k=k,
@@ -534,6 +538,7 @@ def _maybe_lgbm_classifier(n_jobs: int, n_samples: int):
             n_estimators=n_est,
             max_depth=-1,
             num_leaves=63 if n_samples < 100_000 else 48,
+            class_weight="balanced",
             n_jobs=n_jobs,
             random_state=42,
             verbosity=-1,
@@ -583,11 +588,11 @@ def smart_model_selector(X, y, problem_type, scaling_strategy=None):
         if allow_slow and not only_scale and n_samples < 10_000:
             models["SVM"] = SVC()
             models["Logistic"] = LogisticRegression(max_iter=2000)
-            models["DecisionTree"] = DecisionTreeClassifier()
+            models["DecisionTree"] = DecisionTreeClassifier(class_weight="balanced")
 
         if n_samples >= 10_000 or only_scale:
             models["RandomForest"] = RandomForestClassifier(
-                n_estimators=_ne, max_depth=_md, n_jobs=nj, random_state=42
+                n_estimators=_ne, max_depth=_md, class_weight="balanced", n_jobs=nj, random_state=42
             )
             models["GradientBoost"] = GradientBoostingClassifier(
                 n_estimators=min(100, max(50, _ne)),
@@ -686,7 +691,18 @@ def build_ensemble(models, problem_type):
     )
 
 
+def _ensure_min_features(X, y):
+    if X.shape[1] > 0:
+        return X
+    print("WARNING: All features were dropped. Adding a constant dummy feature to continue.")
+    import pandas as pd
+    X_out = X.copy()
+    X_out["_dummy"] = 1.0
+    return X_out
+
+
 def train_models_core(X, y, preprocessor, selector, problem_type, scaling_strategy=None):
+    X = _ensure_min_features(X, y)
     models = smart_model_selector(X, y, problem_type, scaling_strategy)
     cap = 4
     if scaling_strategy is not None:
@@ -746,6 +762,7 @@ def train_models_core(X, y, preprocessor, selector, problem_type, scaling_strate
 
 
 def final_training(X, y, preprocessor, selector, best_model, problem_type, scaling_strategy=None):
+    X = _ensure_min_features(X, y)
     _ = scaling_strategy
     stratify_target = None
     if problem_type == "classification" and _classification_min_count(y) >= 2:
@@ -852,7 +869,7 @@ def run_automl(file_path, target_col):
 
     top_models = [name for name, _ in sorted_scores[:4]]
 
-    models_dict = smart_model_selector(X, y, problem_type, scaling)
+    models_dict = smart_model_selector(X, y, problem_type, None)
     selected_models = {name: models_dict[name] for name in top_models if name in models_dict}
 
     use_ensemble = False
@@ -874,7 +891,7 @@ def run_automl(file_path, target_col):
         print("\nBest Single Model:", top_models[0])
 
     model, X_train, X_test, y_train, y_test = final_training(
-        X, y, pre, selector, best_model, problem_type, scaling
+        X, y, pre, selector, best_model, problem_type, None
     )
 
     eval_metrics = evaluate(model, X_train, X_test, y_train, y_test, problem_type)

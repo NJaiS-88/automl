@@ -1,8 +1,33 @@
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const { randomUUID } = require("crypto");
 const { getGeneratedDir } = require("../config/paths");
+
+const PIPELINE_TIMEOUT_MS = parseInt(process.env.PYTHON_PIPELINE_TIMEOUT_MS, 10) || 30 * 60 * 1000;
+
+function killProcessTree(childProcess) {
+  if (!childProcess || childProcess.killed) return;
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /pid ${childProcess.pid} /f /t`, { stdio: "ignore", timeout: 3000 });
+    } else {
+      childProcess.kill("SIGKILL");
+    }
+  } catch (_e) {
+    try { childProcess.kill("SIGKILL"); } catch (_e2) { /* ignore */ }
+  }
+}
+
+function startProcessTimeout(childProcess, timeoutMs, onTimeout) {
+  if (!timeoutMs || timeoutMs <= 0) return null;
+  const timer = setTimeout(() => {
+    killProcessTree(childProcess);
+    onTimeout();
+  }, timeoutMs);
+  if (timer.unref) timer.unref();
+  return timer;
+}
 
 function sendDebugLog({ runId, hypothesisId, location, message, data }) {
   // #region agent log
@@ -59,10 +84,7 @@ function getPythonCommand() {
         pythonExecutableEnv: rawPythonExecutable,
       },
     });
-    return {
-      command: "py",
-      prefixArgs: ["-3"],
-    };
+    // Fall through to platform-appropriate fallback.
   }
 
   // On Windows, the py launcher is typically available even when "python" is not.
@@ -162,6 +184,17 @@ function runPythonPipeline({
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timeoutTimer = null;
+
+    const clearTimer = () => {
+      if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+    };
+
+    timeoutTimer = startProcessTimeout(pythonProcess, PIPELINE_TIMEOUT_MS, () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`Pipeline timed out after ${PIPELINE_TIMEOUT_MS / 1000}s`));
+    });
 
     pythonProcess.stdout.on("data", (chunk) => {
       const text = chunk.toString();
@@ -188,6 +221,7 @@ function runPythonPipeline({
     });
 
     pythonProcess.on("error", (err) => {
+      clearTimer();
       sendDebugLog({
         runId: "initial",
         hypothesisId: "H3",
@@ -208,6 +242,7 @@ function runPythonPipeline({
     });
 
     pythonProcess.on("close", (code) => {
+      clearTimer();
       if (settled) return;
       settled = true;
       if (code !== 0) {
@@ -245,27 +280,27 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timeoutTimer = null;
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer);
+      try { if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath); } catch (_e) {}
+    };
+
+    timeoutTimer = startProcessTimeout(pythonProcess, PIPELINE_TIMEOUT_MS, () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Prediction timed out after ${PIPELINE_TIMEOUT_MS / 1000}s`));
+    });
+
     pythonProcess.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
     pythonProcess.on("error", (err) => {
-      sendDebugLog({
-        runId: "initial",
-        hypothesisId: "H4",
-        location: "pipelineService.js:runPythonPredict:error",
-        message: "Python predict spawn error",
-        data: {
-          code: err && err.code ? err.code : null,
-          message: err && err.message ? err.message : "unknown",
-        },
-      });
       if (settled) return;
       settled = true;
-      try {
-        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
-      } catch (_e) {
-        // ignore cleanup errors
-      }
+      cleanup();
       reject(
         new Error(
           `Unable to start Python process. Set PYTHON_EXECUTABLE in backend/.env if needed. Details: ${err.message}`
@@ -276,11 +311,7 @@ function runPythonPredict({ projectRoot, modelPath, payload }) {
     pythonProcess.on("close", (code) => {
       if (settled) return;
       settled = true;
-      try {
-        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
-      } catch (_e) {
-        // ignore cleanup errors
-      }
+      cleanup();
       if (code !== 0) {
         reject(new Error(stderr || stdout || "Prediction failed."));
         return;
@@ -319,6 +350,20 @@ function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timeoutTimer = null;
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer);
+      try { if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath); } catch (_e) {}
+    };
+
+    timeoutTimer = startProcessTimeout(pythonProcess, PIPELINE_TIMEOUT_MS, () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Visualization timed out after ${PIPELINE_TIMEOUT_MS / 1000}s`));
+    });
+
     pythonProcess.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     pythonProcess.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
@@ -335,11 +380,7 @@ function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
       });
       if (settled) return;
       settled = true;
-      try {
-        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
-      } catch (_e) {
-        // ignore cleanup errors
-      }
+      cleanup();
       reject(
         new Error(
           `Unable to start Python process. Set PYTHON_EXECUTABLE in backend/.env if needed. Details: ${err.message}`
@@ -350,11 +391,7 @@ function runPythonVisualization({ projectRoot, datasetPath, payload, runId }) {
     pythonProcess.on("close", (code) => {
       if (settled) return;
       settled = true;
-      try {
-        if (fs.existsSync(payloadPath)) fs.unlinkSync(payloadPath);
-      } catch (_e) {
-        // ignore cleanup errors
-      }
+      cleanup();
       if (code !== 0) {
         reject(new Error(stderr || stdout || "Visualization generation failed."));
         return;

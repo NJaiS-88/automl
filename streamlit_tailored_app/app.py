@@ -30,6 +30,7 @@ from predict_helpers import (
 st.set_page_config(page_title="DataPilot · Predict", layout="wide")
 
 _APP_DIR = Path(__file__).resolve().parent
+_AUTOML_ROOT = _APP_DIR.parent
 _ACTIVE_CTX = _APP_DIR / "runtime" / "active_context.json"
 
 
@@ -54,9 +55,21 @@ _bump_context_if_stale()
 
 
 def _ensure_import_path_for_model(project_root: str) -> None:
+    """Ensure the correct automl root is on sys.path and purge any stale cached imports."""
     root = (project_root or "").strip() or os.environ.get("AUTOML_PROJECT_ROOT", "").strip()
-    if root and root not in sys.path:
-        sys.path.insert(0, root)
+    correct_root = str(_AUTOML_ROOT)
+    if correct_root not in sys.path:
+        sys.path.insert(0, correct_root)
+    # Purge stale cached modules that came from a different path
+    for mod_name in list(sys.modules):
+        mod = sys.modules[mod_name]
+        if mod is None:
+            continue
+        f = getattr(mod, "__file__", None)
+        if f and "New folder" in f:
+            del sys.modules[mod_name]
+    if root and root not in sys.path and Path(root).resolve() != _AUTOML_ROOT.resolve():
+        sys.path.append(root)
 
 
 def _resolve_paths() -> tuple[str, str, str, str]:
@@ -82,9 +95,57 @@ def _resolve_paths() -> tuple[str, str, str, str]:
     return mp, mt, pr, ""
 
 
+def _patch_sklearn_compat():
+    """Monkey-patch classes/functions removed between sklearn versions so old pickles load."""
+    try:
+        from sklearn.compose import _column_transformer as ct_mod
+    except ImportError:
+        pass
+    else:
+        if not hasattr(ct_mod, "_RemainderColsList"):
+            from collections import UserList
+            import warnings as _w
+
+            class _RemainderColsList(UserList):
+                def __init__(self, columns, *, future_dtype=None,
+                             warning_was_emitted=False, warning_enabled=True):
+                    super().__init__(columns)
+                    self.future_dtype = future_dtype
+                    self.warning_was_emitted = warning_was_emitted
+                    self.warning_enabled = warning_enabled
+
+                def __getitem__(self, index):
+                    self._show_remainder_cols_warning()
+                    return super().__getitem__(index)
+
+                def _show_remainder_cols_warning(self):
+                    if self.warning_was_emitted or not self.warning_enabled:
+                        return
+                    self.warning_was_emitted = True
+                    _w.warn("Remainder cols format changed in sklearn 1.7+.",
+                            FutureWarning, stacklevel=3)
+
+            ct_mod._RemainderColsList = _RemainderColsList
+
+    try:
+        from sklearn.utils import validation as val_mod
+    except ImportError:
+        pass
+    else:
+        if not hasattr(val_mod, "_is_pandas_df"):
+            def _is_pandas_df(X):
+                try:
+                    pd = sys.modules["pandas"]
+                except KeyError:
+                    return False
+                return isinstance(X, pd.DataFrame)
+            val_mod._is_pandas_df = _is_pandas_df
+
+
 @st.cache_resource
 def _load_pickled_model(normalized_model_path: str, file_mtime: float) -> object:
     """Cache busts when path or file contents change (mtime)."""
+    _patch_sklearn_compat()
     with open(normalized_model_path, "rb") as f:
         return pickle.load(f)
 
