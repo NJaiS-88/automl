@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -11,7 +12,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
-from sklearn.preprocessing import FunctionTransformer, StandardScaler, OneHotEncoder
+from sklearn.preprocessing import FunctionTransformer, StandardScaler, OneHotEncoder, OrdinalEncoder, TargetEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 
@@ -21,8 +22,6 @@ from sklearn.ensemble import (
     RandomForestRegressor,
     GradientBoostingClassifier,
     GradientBoostingRegressor,
-    StackingClassifier,
-    StackingRegressor,
 )
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.svm import SVC, SVR
@@ -257,14 +256,14 @@ def _ensure_writeable_array(x):
     return np.array(x, copy=True)
 
 
-def build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy):
+def build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy, X=None):
     """
     Wrapper for run_pipeline_api: preprocessor choice follows ScalingStrategy tier.
     """
     _ = problem_type
     use_iter = bool(getattr(scaling_strategy, "use_iterative_imputer", False))
     sparse_ohe = bool(getattr(scaling_strategy, "one_hot_sparse", False))
-    return build_preprocessor(num_cols, cat_cols, use_iterative=use_iter, sparse_ohe=sparse_ohe)
+    return build_preprocessor(num_cols, cat_cols, use_iterative=use_iter, sparse_ohe=sparse_ohe, X=X)
 
 
 def sanitize_leakage_features(X: pd.DataFrame, y: pd.Series):
@@ -322,7 +321,44 @@ def sanitize_leakage_features(X: pd.DataFrame, y: pd.Series):
     return Xo, dropped
 
 
-def build_preprocessor(num_cols, cat_cols, use_iterative=True, sparse_ohe: bool = False):
+def _detect_ordered_categoricals(series: pd.Series) -> bool:
+    """Check if a categorical column represents ordered values.
+
+    Looks for numeric-like strings (e.g. 'low', 'medium', 'high') and
+    common ordinal patterns. Returns True when the values are plausibly
+    ordered on a single axis.
+    """
+    vals = series.dropna().unique()
+    if len(vals) < 3:
+        return False
+    lower = {str(v).strip().lower() for v in vals}
+
+    ordinal_sets = [
+        {"low", "medium", "high"},
+        {"small", "medium", "large"},
+        {"beginner", "intermediate", "advanced"},
+        {"cold", "warm", "hot"},
+        {"poor", "average", "good", "excellent"},
+        {"basic", "standard", "premium"},
+        {"min", "max"},
+        {"never", "rarely", "sometimes", "often", "always"},
+        {"none", "some", "all"},
+    ]
+    for ref in ordinal_sets:
+        if lower == ref or lower.issuperset(ref):
+            return True
+
+    try:
+        nums = [int(re.sub(r"[^0-9\-]", "", v)) for v in vals if re.sub(r"[^0-9\-]", "", v)]
+        if len(nums) >= 3 and len(nums) == len(vals):
+            return True
+    except (ValueError, TypeError):
+        pass
+
+    return False
+
+
+def build_preprocessor(num_cols, cat_cols, use_iterative=True, sparse_ohe: bool = False, X=None):
     if not num_cols and not cat_cols:
         return "passthrough"
     if use_iterative:
@@ -337,30 +373,65 @@ def build_preprocessor(num_cols, cat_cols, use_iterative=True, sparse_ohe: bool 
         num_pipe = Pipeline(
             [
                 ("writeable", FunctionTransformer(_ensure_writeable_array, validate=False)),
-                ("imputer", SimpleImputer(strategy="median")),
+                ("imputer", SimpleImputer(strategy="median", add_indicator=True)),
                 ("scaler", StandardScaler()),
             ]
         )
 
-    try:
-        ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=sparse_ohe)
-    except TypeError:
-        ohe = OneHotEncoder(handle_unknown="ignore", sparse=sparse_ohe)
-
-    cat_pipe = Pipeline(
-        [
-            ("writeable", FunctionTransformer(_ensure_writeable_array, validate=False)),
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("encoder", ohe),
+    if X is not None and cat_cols:
+        high_card_cats = [
+            c for c in cat_cols if c in X.columns and X[c].nunique(dropna=True) > 10
         ]
-    )
-
-    return ColumnTransformer(
-        [
-            ("num", num_pipe, num_cols),
-            ("cat", cat_pipe, cat_cols),
+        low_card_cats = [c for c in cat_cols if c not in high_card_cats]
+        ordered_cats = [
+            c for c in low_card_cats if _detect_ordered_categoricals(X[c])
         ]
-    )
+        nominal_cats = [c for c in low_card_cats if c not in ordered_cats]
+    else:
+        high_card_cats = []
+        ordered_cats = []
+        nominal_cats = cat_cols
+
+    transformers = []
+    if num_cols:
+        transformers.append(("num", num_pipe, num_cols))
+
+    if nominal_cats:
+        try:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=sparse_ohe)
+        except TypeError:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse=sparse_ohe)
+
+        nominal_pipe = Pipeline(
+            [
+                ("writeable", FunctionTransformer(_ensure_writeable_array, validate=False)),
+                ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
+                ("encoder", ohe),
+            ]
+        )
+        transformers.append(("cat_nominal", nominal_pipe, nominal_cats))
+
+    if ordered_cats:
+        ordered_pipe = Pipeline(
+            [
+                ("writeable", FunctionTransformer(_ensure_writeable_array, validate=False)),
+                ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
+                ("encoder", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)),
+            ]
+        )
+        transformers.append(("cat_ordered", ordered_pipe, ordered_cats))
+
+    if high_card_cats:
+        high_card_pipe = Pipeline(
+            [
+                ("writeable", FunctionTransformer(_ensure_writeable_array, validate=False)),
+                ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
+                ("encoder", TargetEncoder(random_state=42)),
+            ]
+        )
+        transformers.append(("cat_high", high_card_pipe, high_card_cats))
+
+    return ColumnTransformer(transformers)
 
 
 def get_feature_selector(problem_type, X, scaling_strategy=None):
@@ -393,16 +464,16 @@ class _FeatureEngComposite(BaseEstimator, TransformerMixin):
             self.pca_ = PCA(n_components=min(20, self.n_cols))
             X_fit = self.pca_.fit_transform(X_fit)
         if self.n_rows <= 5000 and self.n_cols < 15:
-            self.poly_ = PolynomialFeatures(degree=2, include_bias=False)
+            self.poly_ = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
             self.poly_.fit(X_fit)
         return self
 
     def transform(self, X):
         Xf = X
-        if self.pca_ is not None:
-            Xf = self.pca_.transform(Xf)
         if self.poly_ is not None:
             Xf = self.poly_.transform(Xf)
+        if self.pca_ is not None:
+            Xf = self.pca_.transform(Xf)
         return Xf
 
 
@@ -433,7 +504,7 @@ class _ScalableFeatureEng(BaseEstimator, TransformerMixin):
         )
         use_poly = use_poly and n_f < 22 and self.n_rows < 55_000
         if use_poly:
-            self.poly_ = PolynomialFeatures(degree=2, include_bias=False)
+            self.poly_ = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
             X_mid = self.poly_.fit_transform(X)
             n_f = X_mid.shape[1]
 
@@ -677,17 +748,65 @@ def smart_model_selector(X, y, problem_type, scaling_strategy=None):
     return models
 
 
-def build_ensemble(models, problem_type):
+class WeightedAverageEnsemble(BaseEstimator):
+    """Ensemble that averages predictions weighted by CV scores.
+
+    For classification: weighted average of predict_proba, then argmax.
+    For regression: weighted average of predict.
+    When weights is None, uses simple (unweighted) average.
+    """
+
+    def __init__(self, estimators, weights, problem_type):
+        self.estimators = estimators
+        self.weights = weights
+        self.problem_type = problem_type
+        self._estimator_type = "classifier" if problem_type == "classification" else "regressor"
+
+    def fit(self, X, y):
+        if self.problem_type == "classification":
+            self.classes_ = np.unique(y)
+        for _, est in self.estimators:
+            est.fit(X, y)
+        return self
+
+    def predict(self, X):
+        if self.problem_type == "classification":
+            proba = self.predict_proba(X)
+            return self.classes_[np.argmax(proba, axis=1)]
+        preds = np.column_stack([est.predict(X) for _, est in self.estimators])
+        if self.weights is not None:
+            return np.average(preds, axis=1, weights=self.weights)
+        return np.mean(preds, axis=1)
+
+    def predict_proba(self, X):
+        if self.problem_type != "classification":
+            raise AttributeError("predict_proba not available for regression")
+        probas = np.array([est.predict_proba(X) for _, est in self.estimators])
+        if self.weights is not None:
+            return np.average(probas, axis=0, weights=self.weights)
+        return np.mean(probas, axis=0)
+
+
+def build_ensemble(models, problem_type, scores=None, simple_average=False):
     estimators = [(name, model) for name, model in models.items()]
 
-    if problem_type == "classification":
-        return StackingClassifier(
-            estimators=estimators,
-            final_estimator=LogisticRegression(max_iter=2000),
-        )
-    return StackingRegressor(
+    if scores is None:
+        weights = None
+    else:
+        metric = "f1_weighted" if problem_type == "classification" else "r2"
+        try:
+            w = np.array([scores[name][metric] for name in models.keys()], dtype=float)
+            if simple_average or w.min() <= 0 or w.sum() <= 0:
+                weights = None
+            else:
+                weights = w / w.sum()
+        except (KeyError, TypeError):
+            weights = None
+
+    return WeightedAverageEnsemble(
         estimators=estimators,
-        final_estimator=LinearRegression(),
+        weights=weights,
+        problem_type=problem_type,
     )
 
 
@@ -849,7 +968,7 @@ def run_automl(file_path, target_col):
     problem_type = detect_problem_type(y)
     print("Problem Type:", problem_type)
 
-    pre = build_preprocessor(num_cols, cat_cols, use_iterative=(X.shape[0] < 2000))
+    pre = build_preprocessor(num_cols, cat_cols, use_iterative=(X.shape[0] < 2000), X=X)
     selector = get_feature_selector(problem_type, X)
 
     scores = train_models_core(X, y, pre, selector, problem_type)
@@ -884,7 +1003,7 @@ def run_automl(file_path, target_col):
         use_ensemble = True
 
     if use_ensemble and len(selected_models) > 1:
-        best_model = build_ensemble(selected_models, problem_type)
+        best_model = build_ensemble(selected_models, problem_type, scores=scores)
         print("\nAuto-Ensemble of Top Models:", top_models)
     else:
         best_model = list(selected_models.values())[0]

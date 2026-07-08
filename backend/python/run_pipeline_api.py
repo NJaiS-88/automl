@@ -232,7 +232,7 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
 
     X = prepare_frame_memory(X, scaling_strategy)
 
-    preprocessor = build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy)
+    preprocessor = build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy, X=X)
     selector = get_feature_selector(problem_type, X, scaling_strategy)
     _emit_progress(
         "training",
@@ -331,7 +331,7 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
             X_chunk = X.loc[chunk_idx].copy(deep=True)
             y_chunk = y.loc[chunk_idx].copy(deep=True)
             chunk_preprocessor = build_smart_preprocessor(
-                num_cols, cat_cols, problem_type, scaling_strategy
+                num_cols, cat_cols, problem_type, scaling_strategy, X=X
             )
             chunk_selector = get_feature_selector(problem_type, X_chunk, scaling_strategy)
             chunk_model_base = (

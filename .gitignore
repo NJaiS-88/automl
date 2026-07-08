@@ -50,3 +50,10 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# --- Windows reserved device names (cannot be indexed by Git) ---
+nul
+nul.*
+
+# --- Local dataset CSV files (do not commit raw data) ---
+*.csv

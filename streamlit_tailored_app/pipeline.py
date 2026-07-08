@@ -3,6 +3,7 @@ Pipeline helpers aligned with the AutoML tailored notebook export (heuristics + 
 """
 from __future__ import annotations
 
+import re
 from functools import partial
 
 import numpy as np
@@ -35,8 +36,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
     FunctionTransformer,
     OneHotEncoder,
+    OrdinalEncoder,
     PolynomialFeatures,
     StandardScaler,
+    TargetEncoder,
 )
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -90,11 +93,43 @@ def get_estimator(problem_type: str, model_name: str):
     return factory()
 
 
-def build_num_cat_pipes(use_iterative: bool):
+def _detect_ordered_categoricals(series: pd.Series) -> bool:
+    """Check if a categorical column represents ordered values."""
+    vals = series.dropna().unique()
+    if len(vals) < 3:
+        return False
+    lower = {str(v).strip().lower() for v in vals}
+
+    ordinal_sets = [
+        {"low", "medium", "high"},
+        {"small", "medium", "large"},
+        {"beginner", "intermediate", "advanced"},
+        {"cold", "warm", "hot"},
+        {"poor", "average", "good", "excellent"},
+        {"basic", "standard", "premium"},
+        {"min", "max"},
+        {"never", "rarely", "sometimes", "often", "always"},
+        {"none", "some", "all"},
+    ]
+    for ref in ordinal_sets:
+        if lower == ref or lower.issuperset(ref):
+            return True
+
+    try:
+        nums = [int(re.sub(r"[^0-9\-]", "", v)) for v in vals if re.sub(r"[^0-9\-]", "", v)]
+        if len(nums) >= 3 and len(nums) == len(vals):
+            return True
+    except (ValueError, TypeError):
+        pass
+
+    return False
+
+
+def build_num_cat_pipes(use_iterative: bool, X=None, cat_cols=None):
     num_imputer = (
         ("imputer", IterativeImputer(initial_strategy="median"))
         if use_iterative
-        else ("imputer", SimpleImputer(strategy="median"))
+        else ("imputer", SimpleImputer(strategy="median", add_indicator=True))
     )
     num_pipe = Pipeline(
         [
@@ -103,21 +138,53 @@ def build_num_cat_pipes(use_iterative: bool):
             ("scaler", StandardScaler()),
         ]
     )
-    cat_pipe = Pipeline(
+
+    if X is not None and cat_cols:
+        high_card = [
+            c for c in cat_cols if c in X.columns and X[c].nunique(dropna=True) > 10
+        ]
+        low_card = [c for c in cat_cols if c not in high_card]
+        ordered = [c for c in low_card if _detect_ordered_categoricals(X[c])]
+        nominal = [c for c in low_card if c not in ordered]
+    else:
+        high_card, ordered, nominal = [], [], cat_cols or []
+
+    nominal_pipe = Pipeline(
         [
             ("writeable", FunctionTransformer(partial(np.array, copy=True), validate=False)),
-            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
             ("encoder", OneHotEncoder(handle_unknown="ignore")),
         ]
     )
-    return num_pipe, cat_pipe
+
+    ordered_pipe = None
+    if ordered:
+        ordered_pipe = Pipeline(
+            [
+                ("writeable", FunctionTransformer(partial(np.array, copy=True), validate=False)),
+                ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
+                ("encoder", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)),
+            ]
+        )
+
+    high_card_pipe = None
+    if high_card:
+        high_card_pipe = Pipeline(
+            [
+                ("writeable", FunctionTransformer(partial(np.array, copy=True), validate=False)),
+                ("imputer", SimpleImputer(strategy="most_frequent", add_indicator=True)),
+                ("encoder", TargetEncoder(random_state=42)),
+            ]
+        )
+
+    return num_pipe, nominal_pipe, nominal, ordered_pipe, ordered, high_card_pipe, high_card
 
 
 def build_feature_engineering(x: pd.DataFrame, use_pca: bool, use_poly: bool):
     if use_pca:
         return Pipeline([("eng", PCA(n_components=min(20, x.shape[1])))])
     if use_poly:
-        return Pipeline([("eng", PolynomialFeatures(degree=2, include_bias=False))])
+        return Pipeline([("eng", PolynomialFeatures(degree=2, include_bias=False, interaction_only=True))])
     return "passthrough"
 
 
@@ -136,8 +203,18 @@ def build_full_pipeline(
     num_cols = list(x.select_dtypes(include=["int64", "float64"]).columns)
     cat_cols = [c for c in x.columns if c not in num_cols]
 
-    num_pipe, cat_pipe = build_num_cat_pipes(h["use_iterative"])
-    pre = ColumnTransformer([("num", num_pipe, num_cols), ("cat", cat_pipe, cat_cols)])
+    pipes = build_num_cat_pipes(h["use_iterative"], X=x, cat_cols=cat_cols)
+    num_pipe, nominal_pipe, nominal, ordered_pipe, ordered, high_card_pipe, high_card = pipes
+    ct_transformers = [("num", num_pipe, num_cols)]
+    if nominal:
+        ct_transformers.append(("cat_nominal", nominal_pipe, nominal))
+    elif cat_cols and not ordered and not high_card:
+        ct_transformers.append(("cat", nominal_pipe, cat_cols))
+    if ordered_pipe is not None and ordered:
+        ct_transformers.append(("cat_ordered", ordered_pipe, ordered))
+    if high_card_pipe is not None and high_card:
+        ct_transformers.append(("cat_high", high_card_pipe, high_card))
+    pre = ColumnTransformer(ct_transformers)
 
     score_f = f_classif if problem_type == "classification" else f_regression
     selector = SelectKBest(score_func=score_f, k=min(10, x.shape[1]))

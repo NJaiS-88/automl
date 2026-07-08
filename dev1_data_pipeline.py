@@ -384,7 +384,7 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
 
     X = prepare_frame_memory(X, scaling_strategy)
 
-    preprocessor = build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy)
+    preprocessor = build_smart_preprocessor(num_cols, cat_cols, problem_type, scaling_strategy, X=X)
     selector = get_feature_selector(problem_type, X, scaling_strategy)
     cv_scores = train_models_core(X, y, preprocessor, selector, problem_type, scaling_strategy)
 
