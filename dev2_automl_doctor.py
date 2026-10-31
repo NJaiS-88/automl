@@ -767,6 +767,8 @@ class WeightedAverageEnsemble(BaseEstimator):
             self.classes_ = np.unique(y)
         for _, est in self.estimators:
             est.fit(X, y)
+        # sklearn's check_is_fitted (run by Pipeline.predict) needs a trailing-underscore attribute.
+        self.estimators_ = [est for _, est in self.estimators]
         return self
 
     def predict(self, X):
