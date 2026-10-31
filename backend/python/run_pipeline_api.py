@@ -192,7 +192,13 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
         split_features_target,
         train_models_core,
     )
-    from dev3_auto_optimization import optimize_model
+    from dev3_auto_optimization import (
+        evaluate_model,
+        is_better_entry,
+        leaderboard_report,
+        optimize_model,
+        score_entry,
+    )
     from chunk_ensemble_model import ChunkEnsembleModel
     from sklearn.base import clone
 
@@ -267,10 +273,15 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     if use_ensemble and len(selected_models) > 1:
         dev2_model = build_ensemble(selected_models, problem_type)
         dev2_choice = {"type": "ensemble", "members": list(selected_models.keys())}
+        baseline_name = f"Ensemble ({', '.join(selected_models.keys())})"
     else:
         model_name = next(iter(selected_models))
         dev2_model = selected_models[model_name]
         dev2_choice = {"type": "single", "members": [model_name]}
+        baseline_name = model_name
+    dev2_candidates = {
+        name: clone(available_models[name]) for name in cv_scores if name in available_models
+    }
 
     trained_model, X_train, X_test, y_train, y_test = final_training(
         X, y, preprocessor, selector, dev2_model, problem_type, scaling_strategy
@@ -287,13 +298,23 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
         problem_type,
         random_state=random_state,
         scaling_strategy=scaling_strategy,
+        dev2_candidates=dev2_candidates,
+        baseline_name=baseline_name,
     )
     final_model = optimization["final_model"]
+    final_entry = optimization["final_entry"]
+    leaderboard_entries = list(optimization["leaderboard_entries"])
+    n_train = len(X_train)
 
-    # Calibrate predict_proba for classification (improves ROC AUC reliability).
+    def _challenger_entry(name: str, source: str, model) -> Dict[str, Any]:
+        scores = evaluate_model(model, X_train, X_test, y_train, y_test, problem_type)
+        entry = score_entry(name, source, scores.train, scores.test, problem_type, n_train)
+        leaderboard_entries.append(entry)
+        return entry
+
+    calibration_report: Dict[str, Any] = {"attempted": False, "applied": False}
     if problem_type == "classification":
         from sklearn.calibration import CalibratedClassifierCV
-        from sklearn.base import clone
         calib_cv = 3 if len(X_train) < 50000 else (2 if len(X_train) < 150000 else 1)
         if calib_cv > 1:
             try:
@@ -304,9 +325,17 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
                     n_jobs=-1,
                 )
                 calibrator.fit(X_train, y_train)
-                final_model = calibrator
-            except Exception:
-                pass
+                cal_entry = _challenger_entry(
+                    f"{final_entry['name']} (calibrated)", "calibration", calibrator
+                )
+                calibration_report = {"attempted": True, "applied": False, "cv": calib_cv}
+                # Calibration improves predict_proba, which the selection metric does not measure,
+                # so it is kept unless the uncalibrated model is strictly better.
+                if not is_better_entry(final_entry, cal_entry):
+                    final_model, final_entry = calibrator, cal_entry
+                    calibration_report["applied"] = True
+            except Exception as exc:
+                calibration_report = {"attempted": True, "applied": False, "error": str(exc)}
 
     final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)
 
@@ -314,10 +343,12 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
     chunk_ensemble_enabled = X.shape[0] > LARGE_DATASET_ROW_THRESHOLD and getattr(
         scaling_strategy, "use_chunk_training", False
     )
+    chunk_ensemble_kept = False
     if chunk_ensemble_enabled:
         _emit_progress("training", 70, "Building chunk-wise ensemble models...")
         rng = np.random.default_rng(random_state)
-        shuffled_idx = rng.permutation(X.index.to_numpy())
+        # Chunks come from the training split only so the test score stays a fair comparison.
+        shuffled_idx = rng.permutation(X_train.index.to_numpy())
         chunk_models = [final_model]
         total_chunks = int(math.ceil(len(shuffled_idx) / LARGE_DATASET_CHUNK_ROWS))
 
@@ -362,8 +393,14 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
             )
 
         if len(chunk_models) > 1:
-            final_model = ChunkEnsembleModel(models=chunk_models, problem_type=problem_type)
-            final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)
+            chunk_model = ChunkEnsembleModel(models=chunk_models, problem_type=problem_type)
+            chunk_entry = _challenger_entry(
+                f"Chunk ensemble ({len(chunk_models)} models)", "chunk_ensemble", chunk_model
+            )
+            if is_better_entry(chunk_entry, final_entry):
+                final_model, final_entry = chunk_model, chunk_entry
+                chunk_ensemble_kept = True
+                final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)
 
     if visualizations == "yes":
         run_eda(dataset_path, target_col, scaling_strategy=scaling_strategy)
@@ -401,13 +438,19 @@ def train_and_collect(project_root, dataset_path, target_col, visualizations="no
             "before_test": optimization["before_test"],
             "after_train": optimization["after_train"],
             "after_test": optimization["after_test"],
-            "final_train": optimization["final_train"],
-            "final_test": optimization["final_test"],
+            "final_train": final_entry["train"],
+            "final_test": final_entry["test"],
             "candidate_scores": optimization["candidate_scores"],
+            "dev2_candidate_scores": optimization["dev2_candidate_scores"],
+            "final_model_name": optimization["final_model_name"],
+            "leaderboard": leaderboard_report(leaderboard_entries, final_entry),
+            "selection_rule": optimization["selection_rule"],
+            "calibration": calibration_report,
             "failed_candidates": optimization["failed_candidates"],
             "final_metrics": final_metrics,
             "chunk_ensemble": {
                 "enabled": chunk_ensemble_enabled,
+                "kept": chunk_ensemble_kept,
                 "threshold_rows": LARGE_DATASET_ROW_THRESHOLD,
                 "chunk_rows": LARGE_DATASET_CHUNK_ROWS,
             },

@@ -36,7 +36,7 @@ export function resolveFinalChosenModelLabel(report, status) {
   const sv = report?.dev3?.selected_model_version;
   const best = report?.dev3?.best_candidate_name;
 
-  if (sv === "improved" || sv === "randomized_search") {
+  if (sv && sv !== "original") {
     if (best) return best;
     if (base) return base;
     if (sv === "randomized_search") return "Tuned model (randomized search)";

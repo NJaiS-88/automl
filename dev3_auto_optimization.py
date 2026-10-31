@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import os
 
 import numpy as np
@@ -57,13 +57,15 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, problem_type) -> Sco
 IMBALANCE_MINOR_RATIO_THRESHOLD = 0.3
 
 
-def detect_issues(train_score: float, test_score: float, problem_type: str, n_samples: int) -> str:
+def overfit_gap_threshold(problem_type: str, n_samples: int) -> float:
     # Dynamic overfit threshold: stricter for larger datasets, looser for smaller ones.
     base_gap = 0.08 if problem_type == "classification" else 0.12
     sample_adjustment = min(0.04, max(0.0, (2000 - n_samples) / 50000))
-    overfit_gap = base_gap + sample_adjustment
+    return base_gap + sample_adjustment
 
-    if (train_score - test_score) > overfit_gap:
+
+def detect_issues(train_score: float, test_score: float, problem_type: str, n_samples: int) -> str:
+    if (train_score - test_score) > overfit_gap_threshold(problem_type, n_samples):
         return "overfitting"
 
     # Dynamic low-performance threshold by task type.
@@ -88,6 +90,70 @@ def check_imbalance(y_train) -> bool:
     majority_to_minority = ratio.max() / max(minority_ratio, 1e-9)
 
     return minority_ratio < IMBALANCE_MINOR_RATIO_THRESHOLD or majority_to_minority > 4.0
+
+
+# Scores within this distance are treated as a tie; the smaller train/test gap then wins.
+SELECTION_TIE_TOLERANCE = 0.002
+
+SELECTION_RULE = (
+    "selection_score = test - max(0, (train - test) - overfit_gap_threshold). "
+    "Highest selection_score wins; within "
+    f"{SELECTION_TIE_TOLERANCE} the candidate with the smaller train/test gap wins; "
+    "on a full tie the earlier entry (Dev2 baseline first) is kept."
+)
+
+_SOURCE_TO_VERSION = {
+    "dev2_baseline": "original",
+    "dev2_candidate": "dev2_candidate",
+    "dev3_candidate": "improved",
+    "randomized_search": "randomized_search",
+}
+
+
+def score_entry(
+    name: str,
+    source: str,
+    train_score: float,
+    test_score: float,
+    problem_type: str,
+    n_samples: int,
+) -> Dict[str, Any]:
+    """Leaderboard row: rewards test score and penalises any train/test gap beyond the overfit threshold."""
+    train_score = float(train_score)
+    test_score = float(test_score)
+    gap = train_score - test_score
+    threshold = overfit_gap_threshold(problem_type, n_samples)
+    excess_gap = max(0.0, gap - threshold)
+    return {
+        "name": name,
+        "source": source,
+        "train": train_score,
+        "test": test_score,
+        "gap": gap,
+        "overfit_threshold": float(threshold),
+        "overfit": bool(excess_gap > 0),
+        "selection_score": test_score - excess_gap,
+    }
+
+
+def is_better_entry(challenger: Dict[str, Any], incumbent: Dict[str, Any]) -> bool:
+    diff = challenger["selection_score"] - incumbent["selection_score"]
+    if diff > SELECTION_TIE_TOLERANCE:
+        return True
+    if diff < -SELECTION_TIE_TOLERANCE:
+        return False
+    return max(challenger["gap"], 0.0) < max(incumbent["gap"], 0.0) - 1e-9
+
+
+def leaderboard_report(entries, winner: Dict[str, Any]) -> list:
+    rows = [{**entry, "selected": entry is winner} for entry in entries]
+    rows.sort(key=lambda row: (row["selected"], row["selection_score"]), reverse=True)
+    return rows
+
+
+def _model_label(model) -> str:
+    est = model.named_steps["model"] if isinstance(model, Pipeline) and "model" in model.named_steps else model
+    return type(est).__name__
 
 
 def _dynamic_forest_size(n_samples: int, n_features: int, issue: str) -> int:
@@ -469,10 +535,7 @@ def _try_randomized_forest_tune(
 
     best = rs.best_estimator_
     scores = evaluate_model(best, X_train, X_test, y_train, y_test, problem_type)
-    base_scores = evaluate_model(base_model, X_train, X_test, y_train, y_test, problem_type)
-    if scores.test >= base_scores.test:
-        return best, scores.train, scores.test
-    return None
+    return best, scores
 
 
 def _fit_candidate_in_same_structure(original_model, candidate_estimator, X_train, y_train):
@@ -483,7 +546,7 @@ def _fit_candidate_in_same_structure(original_model, candidate_estimator, X_trai
     """
     if isinstance(original_model, Pipeline):
         optimized_pipeline = clone(original_model)
-        optimized_pipeline.set_params(model=candidate_estimator)
+        optimized_pipeline.set_params(model=clone(candidate_estimator))
         optimized_pipeline.fit(X_train, y_train)
         return optimized_pipeline
 
@@ -501,9 +564,19 @@ def optimize_model(
     problem_type: str,
     random_state: int = 42,
     scaling_strategy: Any = None,
+    dev2_candidates: Optional[Dict[str, Any]] = None,
+    baseline_name: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """
+    Pick the final model from one leaderboard on the same train/test split:
+    the fitted Dev2 baseline, every other Dev2 candidate (``dev2_candidates``),
+    every Dev3 tuned candidate, and the optional randomized search result.
+    Ranking follows ``SELECTION_RULE`` so an overfit model cannot win on test score alone.
+    """
+    n_samples = len(X_train)
     before = evaluate_model(model, X_train, X_test, y_train, y_test, problem_type)
-    issue = detect_issues(before.train, before.test, problem_type, n_samples=len(X_train))
+    issue = detect_issues(before.train, before.test, problem_type, n_samples=n_samples)
+    baseline_name = baseline_name or _model_label(model)
 
     imbalance = False
     if problem_type == "classification":
@@ -531,57 +604,53 @@ def optimize_model(
             random_state=random_state,
         )
 
-    best_candidate_name = None
-    best_candidate_estimator = None
-    best_candidate_model = None
-    best_candidate_scores = None
-    candidate_scores = {}
+    def _entry(name: str, source: str, scores: ScoreBundle) -> Dict[str, Any]:
+        return score_entry(name, source, scores.train, scores.test, problem_type, n_samples)
+
+    baseline_entry = _entry(baseline_name, "dev2_baseline", before)
+    leaderboard = [baseline_entry]
+    best_entry, best_model = baseline_entry, model
     failed_candidates = {}
+
+    dev2_candidate_scores = {}
+    for name, estimator in (dev2_candidates or {}).items():
+        if name == baseline_name:
+            continue
+        try:
+            fitted_model = _fit_candidate_in_same_structure(model, estimator, X_train, y_train)
+            scores = evaluate_model(fitted_model, X_train, X_test, y_train, y_test, problem_type)
+        except Exception as exc:  # pragma: no cover - depends on data/model combo
+            failed_candidates[f"{name} (Dev2)"] = str(exc)
+            continue
+        entry = _entry(name, "dev2_candidate", scores)
+        leaderboard.append(entry)
+        dev2_candidate_scores[name] = {"train": scores.train, "test": scores.test}
+        if is_better_entry(entry, best_entry):
+            best_entry, best_model = entry, fitted_model
+
+    best_dev3_entry = None
+    best_dev3_scores = None
+    best_candidate_estimator = None
+    candidate_scores = {}
 
     for name, estimator in candidate_estimators.items():
         try:
-            fitted_model = _fit_candidate_in_same_structure(
-                original_model=model,
-                candidate_estimator=estimator,
-                X_train=X_train,
-                y_train=y_train,
-            )
-            scores = evaluate_model(
-                fitted_model, X_train, X_test, y_train, y_test, problem_type
-            )
-            candidate_scores[name] = {"train": scores.train, "test": scores.test}
-
-            if best_candidate_scores is None or scores.test > best_candidate_scores.test:
-                best_candidate_name = name
-                best_candidate_estimator = estimator
-                best_candidate_model = fitted_model
-                best_candidate_scores = scores
+            fitted_model = _fit_candidate_in_same_structure(model, estimator, X_train, y_train)
+            scores = evaluate_model(fitted_model, X_train, X_test, y_train, y_test, problem_type)
         except Exception as exc:  # pragma: no cover - depends on data/model combo
             failed_candidates[name] = str(exc)
-
-    if best_candidate_scores is None:
-        # Nothing could be trained successfully, keep original.
-        after = before
-        final_model = model
-        final_train = before.train
-        final_test = before.test
-        selected_version = "original"
-    else:
-        after = best_candidate_scores
-        if after.test >= before.test:
-            final_model = best_candidate_model
-            final_train = after.train
-            final_test = after.test
-            selected_version = "improved"
-        else:
-            final_model = model
-            final_train = before.train
-            final_test = before.test
-            selected_version = "original"
+            continue
+        entry = _entry(name, "dev3_candidate", scores)
+        leaderboard.append(entry)
+        candidate_scores[name] = {"train": scores.train, "test": scores.test}
+        if best_dev3_entry is None or is_better_entry(entry, best_dev3_entry):
+            best_dev3_entry, best_dev3_scores, best_candidate_estimator = entry, scores, estimator
+        if is_better_entry(entry, best_entry):
+            best_entry, best_model = entry, fitted_model
 
     if scaling_strategy is not None and getattr(scaling_strategy, "use_randomized_search", False):
         rs_out = _try_randomized_forest_tune(
-            final_model,
+            best_model,
             X_train,
             X_test,
             y_train,
@@ -590,11 +659,18 @@ def optimize_model(
             scaling_strategy,
         )
         if rs_out is not None:
-            final_model, rt, ste = rs_out
-            if ste >= final_test:
-                final_train = rt
-                final_test = ste
-                selected_version = "randomized_search"
+            rs_model, rs_scores = rs_out
+            rs_entry = _entry(best_entry["name"], "randomized_search", rs_scores)
+            leaderboard.append(rs_entry)
+            if is_better_entry(rs_entry, best_entry):
+                best_entry, best_model = rs_entry, rs_model
+
+    after = best_dev3_scores if best_dev3_scores is not None else before
+    selected_version = _SOURCE_TO_VERSION[best_entry["source"]]
+    if selected_version != "original":
+        best_candidate_name = best_entry["name"]
+    else:
+        best_candidate_name = best_dev3_entry["name"] if best_dev3_entry else None
 
     return {
         "metric": before.metric_name,
@@ -602,15 +678,21 @@ def optimize_model(
         "before_test": before.test,
         "after_train": after.train,
         "after_test": after.test,
-        "final_train": final_train,
-        "final_test": final_test,
-        "final_model": final_model,
+        "final_train": best_entry["train"],
+        "final_test": best_entry["test"],
+        "final_model": best_model,
+        "final_entry": best_entry,
+        "final_model_name": best_entry["name"],
         "issue_detected": issue,
         "imbalance_detected": imbalance,
         "selected_model_version": selected_version,
         "best_candidate_name": best_candidate_name,
         "candidate_model": best_candidate_estimator,
         "candidate_scores": candidate_scores,
+        "dev2_candidate_scores": dev2_candidate_scores,
         "failed_candidates": failed_candidates,
+        "leaderboard_entries": leaderboard,
+        "leaderboard": leaderboard_report(leaderboard, best_entry),
+        "selection_rule": SELECTION_RULE,
     }
 

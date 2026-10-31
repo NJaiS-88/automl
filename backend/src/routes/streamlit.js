@@ -55,7 +55,8 @@ function finalModelLabel(report) {
   const dev2 = report.dev2?.choice || {};
   const members = dev2.members || [];
   const dev3 = report.dev3 || {};
-  if (dev3.selected_model_version === "improved" && dev3.best_candidate_name) {
+  const version = dev3.selected_model_version || "original";
+  if (version !== "original" && dev3.best_candidate_name) {
     return String(dev3.best_candidate_name);
   }
   if (dev2.type === "ensemble" && members.length) {

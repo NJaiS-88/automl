@@ -11,10 +11,15 @@ import {
 function VisualizationPanel({ report }) {
   if (!report) return null;
 
+  const leaderboard = Array.isArray(report.dev3?.leaderboard) ? report.dev3.leaderboard : [];
   const candidateScores = report.dev3?.candidate_scores || {};
-  const lineData = Object.entries(candidateScores).map(([name, scoreObj], idx) => ({
+  const rows = leaderboard.length
+    ? leaderboard.map((row) => [`${row.name} (${row.source})`, row])
+    : Object.entries(candidateScores);
+  const lineData = rows.map(([name, scoreObj], idx) => ({
     idx,
     model: name,
+    train: Number(scoreObj?.train ?? 0),
     score: Number(scoreObj?.test ?? scoreObj?.train ?? 0),
   }));
 
@@ -29,7 +34,8 @@ function VisualizationPanel({ report }) {
             <XAxis dataKey="model" />
             <YAxis />
             <Tooltip />
-            <Line type="monotone" dataKey="score" stroke="#2563eb" strokeWidth={2} />
+            <Line type="monotone" dataKey="train" name="train" stroke="#f59e0b" strokeWidth={2} />
+            <Line type="monotone" dataKey="score" name="test" stroke="#2563eb" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
       </div>

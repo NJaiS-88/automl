@@ -657,9 +657,9 @@ def smart_model_selector(X, y, problem_type, scaling_strategy=None):
             models["NaiveBayes"] = GaussianNB()
 
         if allow_slow and not only_scale and n_samples < 10_000:
-            models["SVM"] = SVC()
+            models["SVM"] = SVC(probability=True, random_state=42)
             models["Logistic"] = LogisticRegression(max_iter=2000)
-            models["DecisionTree"] = DecisionTreeClassifier(class_weight="balanced")
+            models["DecisionTree"] = DecisionTreeClassifier(class_weight="balanced", random_state=42)
 
         if n_samples >= 10_000 or only_scale:
             models["RandomForest"] = RandomForestClassifier(
@@ -688,7 +688,7 @@ def smart_model_selector(X, y, problem_type, scaling_strategy=None):
         if allow_slow and not only_scale and n_samples < 10_000:
             models["SVR"] = SVR()
             models["Linear"] = LinearRegression()
-            models["DecisionTree"] = DecisionTreeRegressor()
+            models["DecisionTree"] = DecisionTreeRegressor(random_state=42)
 
         if n_samples >= 10_000 or only_scale:
             models["RandomForest"] = RandomForestRegressor(

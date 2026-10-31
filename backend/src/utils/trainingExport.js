@@ -52,7 +52,7 @@ function computeTailoredExportContext(run) {
   const selectedVersion = report.dev3?.selected_model_version || "original";
   const bestCandidateName = report.dev3?.best_candidate_name || null;
   const finalModelName =
-    selectedVersion === "improved" && bestCandidateName
+    selectedVersion !== "original" && bestCandidateName
       ? bestCandidateName
       : dev2Choice.type === "single" && dev2Choice.members?.length
         ? dev2Choice.members[0]
@@ -65,7 +65,7 @@ function computeTailoredExportContext(run) {
 
   const members = Array.isArray(dev2Choice.members) ? dev2Choice.members : [];
   const isFinalEnsemble =
-    selectedVersion !== "improved" && dev2Choice.type === "ensemble" && members.length > 1;
+    selectedVersion === "original" && dev2Choice.type === "ensemble" && members.length > 1;
 
   const importSet = new Set([
     "import argparse",

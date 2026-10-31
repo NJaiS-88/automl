@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn.base import clone
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
@@ -409,10 +410,15 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
     if use_ensemble and len(selected_models) > 1:
         dev2_model = build_ensemble(selected_models, problem_type)
         dev2_choice = {"type": "ensemble", "members": list(selected_models.keys())}
+        baseline_name = f"Ensemble ({', '.join(selected_models.keys())})"
     else:
         model_name = next(iter(selected_models))
         dev2_model = selected_models[model_name]
         dev2_choice = {"type": "single", "members": [model_name]}
+        baseline_name = model_name
+    dev2_candidates = {
+        name: clone(available_models[name]) for name in cv_scores if name in available_models
+    }
 
     trained_model, X_train, X_test, y_train, y_test = final_training(
         X, y, preprocessor, selector, dev2_model, problem_type, scaling_strategy
@@ -431,11 +437,21 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
         problem_type,
         random_state=random_state,
         scaling_strategy=scaling_strategy,
+        dev2_candidates=dev2_candidates,
+        baseline_name=baseline_name,
     )
     final_model = optimization["final_model"]
     final_metrics = evaluate(final_model, X_train, X_test, y_train, y_test, problem_type)
     print(f"Issue detected by Dev3: {optimization['issue_detected']}")
-    print(f"Selected version: {optimization['selected_model_version']}")
+    print(f"\nModel leaderboard ({optimization['metric']}, same train/test split):")
+    for row in optimization["leaderboard"]:
+        marker = "  <== selected" if row["selected"] else ""
+        flag = " [overfit]" if row["overfit"] else ""
+        print(
+            f"  {row['name']:<28} {row['source']:<17} train={row['train']:.4f} "
+            f"test={row['test']:.4f} gap={row['gap']:+.4f} score={row['selection_score']:.4f}{flag}{marker}"
+        )
+    print(f"Selected version: {optimization['selected_model_version']} ({optimization['final_model_name']})")
     _plot_final_model_visuals(
         baseline_model_name=_extract_model_name(trained_model),
         final_model=final_model,
@@ -477,6 +493,13 @@ def run_full_pipeline(file_path: str, target_col: str, random_state: int = 42) -
                     for name, score in optimization["candidate_scores"].items()
                 }
             ),
+            "dev2_candidate_scores": {
+                name: _sanitize_dict(score)
+                for name, score in optimization["dev2_candidate_scores"].items()
+            },
+            "final_model_name": optimization["final_model_name"],
+            "leaderboard": [_sanitize_dict(row) for row in optimization["leaderboard"]],
+            "selection_rule": optimization["selection_rule"],
             "failed_candidates": optimization["failed_candidates"],
             "final_metrics": _sanitize_dict(final_metrics),
         },
