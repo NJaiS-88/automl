@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import math
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -473,6 +474,7 @@ def main():
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--visualizations", default="no")
     args = parser.parse_args()
+    print(f"automl code version: {os.getenv('RENDER_GIT_COMMIT', 'local')}", file=sys.stderr)
 
     project_root = Path(args.project_root)
     generated_dir = (
